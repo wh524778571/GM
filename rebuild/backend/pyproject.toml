@@ -1,0 +1,17 @@
+# 后端工具链配置（Phase 4 / Epic 4.3）
+# 只放 lint / test 配置，不做打包 —— 服务用 Dockerfile 交付，不发 wheel。
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["alembic/versions", ".cache", "var"]
+
+[tool.ruff.lint]
+# ruff 默认集：E4 import 规范 · E7 语句写法 · E9 语法/IO 错误 · F pyflakes（未定义名、未使用导入）
+# 刻意不开 E501/I/UP/B —— 这些是风格偏好，收紧应该另开一轮专门改，
+# 不能让 CI 因为换行位置变红，那会训练团队忽略 CI。
+select = ["E4", "E7", "E9", "F"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

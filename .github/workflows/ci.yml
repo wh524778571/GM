@@ -1,0 +1,150 @@
+name: CI
+
+# Phase 4 / Epic 4.3：把「本地能跑」变成「任何一台干净机器都能跑」。
+# 三个 job 各自独立，谁红谁负责，不做互相兜底。
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支重复推送时，取消上一次尚未跑完的流水线
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 后端 · ruff + 迁移 + 测试
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rebuild/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "ruff==0.16.1" pytest
+
+      - name: Ruff lint
+        run: ruff check .
+
+      # 迁移可从零跑通：用干净库跑 alembic，验证真实部署路径可重放
+      - name: 迁移可从零跑通
+        env:
+          DATABASE_URL: sqlite:///./ci.db
+        run: alembic upgrade head
+
+      # pytest 经 conftest 自建测试库（Base.metadata.create_all），无需预置数据
+      - name: Pytest（含 test_publish.py 的「不许假成功」约束）
+        run: pytest -q
+
+  frontend:
+    name: 前端 · build（含类型检查）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rebuild/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rebuild/frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      # 未配 eslint 配置，next lint 会在 CI 卡交互，故只跑 build（next build 内含类型检查）
+      - name: Build
+        run: npm run build
+        env:
+          BACKEND_BASE_URL: http://localhost:8000
+
+  # ---- 诚实发布红线（与 test_publish.py 互为双保险，源码层面再扫一次）----
+  guardrails:
+    name: 红线检查 · 单数据源 / 跨平台 / 诚实发布
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 唯一数据源（禁止 sqlite3.connect 绕过 settings）
+        run: |
+          if grep -rn "sqlite3\.connect(" rebuild --include="*.py" | grep -v "rebuild/backend/tests/"; then
+            echo "::error::出现了 settings.DATABASE_URL 之外的数据库连接"
+            exit 1
+          fi
+          echo "OK: 单一数据源"
+
+      - name: 跨平台（禁止 macOS 专有 sips）
+        run: |
+          if grep -rnE "(subprocess|os\.system|run)\(.*['\"]sips" rebuild --include="*.py"; then
+            echo "::error::图片处理必须走 Pillow，不能调 sips"
+            exit 1
+          fi
+          echo "OK: 无平台专有调用"
+
+      - name: 红线 · publishing 层不得含自动投递客户端
+        run: |
+          if grep -rnE "\b(httpx|requests|selenium|playwright|aiohttp|urllib\.request)\b" \
+               rebuild/backend/app/services/publishing/ --include="*.py"; then
+            echo "::error::publishing 层出现网络客户端 —— 系统只做人工发布助手，禁止自动投递"
+            exit 1
+          fi
+          echo "OK: publishing 层无自动投递客户端"
+
+      # 只匹配真实赋值（state=/status= 后面直接跟 PUBLISHED 常量或 "published" 字面量），
+      # 不匹配文档字符串里对 state=published 的说明性描述。
+      - name: 红线 · published 状态只能由 confirm_publish 写入
+        run: |
+          HITS=$(grep -rnE "(state|status)[[:space:]]*=[[:space:]]*(PublishState\.PUBLISHED|ArticleStatus\.PUBLISHED|[\"']published[\"'])" \
+                 rebuild/backend/app --include="*.py" \
+                 | grep -v "rebuild/backend/app/services/publishing/service.py:" || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS"
+            echo "::error::confirm_publish 之外出现 published 写入点 —— 只有人工确认才能标记已发布"
+            exit 1
+          fi
+          echo "OK: published 写入点唯一（rebuild/backend/app/services/publishing/service.py）"
+
+      - name: 红线 · 仓库内不得出现真实密钥
+        run: |
+          if grep -rnE "ZHIPU_API_KEY\s*=\s*['\"][0-9a-zA-Z]{16,}" rebuild \
+               --include="*.py" --include="*.yml" --include="*.yaml" --include="*.env*" \
+               --exclude="backend/.env.example"; then
+            echo "::error::检测到疑似硬编码密钥"
+            exit 1
+          fi
+          echo "OK: 无硬编码密钥"
+
+      # 密钥绝不能进浏览器包：所有后端调用必须走 app/api/* 服务端代理。
+      # 只匹配真实读取（process.env.XXX），注释里提及变量名不算违规。
+      - name: 红线 · 客户端组件不得读取服务端密钥
+        run: |
+          HITS=$(grep -rnE "process\.env\.(ZHIPU_API_KEY|BACKEND_TOKEN|.*_SECRET)" \
+                 rebuild/frontend/app rebuild/frontend/components rebuild/frontend/lib 2>/dev/null \
+                 | grep -v "rebuild/frontend/app/api/" || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS"
+            echo "::error::服务端密钥出现在可能被打进浏览器包的代码里"
+            exit 1
+          fi
+          echo "OK: 密钥仅在 app/api/* 服务端代理中读取"
+
+          # NEXT_PUBLIC_ 前缀会被注入浏览器，不得用于任何密钥
+          if grep -rnE "NEXT_PUBLIC_[A-Z_]*(KEY|SECRET|TOKEN)" \
+               rebuild/frontend/app rebuild/frontend/components rebuild/frontend/lib 2>/dev/null; then
+            echo "::error::NEXT_PUBLIC_ 变量名含 KEY/SECRET/TOKEN —— 会被打进浏览器包"
+            exit 1
+          fi
+          echo "OK: 无 NEXT_PUBLIC_ 密钥泄漏"

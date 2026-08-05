@@ -1,0 +1,138 @@
+# ============================================================================
+# platforms.yaml —— 四平台规则「唯一权威源」
+#
+# 来源：phase0-archive/prompts/gen_base.py (TITLE_LIMITS / quality_check)
+#       phase0-archive/prompts/quality_checker.py (PLATFORM_TITLE_LIMITS)
+#       phase0-archive/prompts/gen_article_from_request.py (SYSTEM_PROMPT 四平台风格)
+#       phase0-archive/design/config.yaml (platforms / publishing)
+#
+# 【硬约束】生成 / 质检 / 渲染 / UI 一律只读这一份文件，禁止在任何代码里再写死
+#           标题字数、正文字数、配图规则。旧系统三处规则打架（坑 5）由此消除。
+#
+# 关键规则：小红书 = 纯文字无图，正文 ≤ 1000 字。
+# ============================================================================
+
+version: 1
+
+# 平台顺序即 UI 展示顺序
+order: [toutiao, baijia, bilibili, xhs]
+
+# 内容中的配图占位符格式（生成/渲染/质检共用）
+placeholder:
+  # 【配图1：作品名_场景描述】，全角/半角冒号都接受
+  pattern: '【配图(\d+)[:：](.*?)】'
+  template: '【配图{n}：{desc}】'
+  # 建议配图密度：约每 N 字 1 张（不含 xhs）
+  chars_per_image: 300
+  # 单篇建议最少配图数（不含 xhs）
+  min_images: 5
+
+platforms:
+
+  toutiao:
+    name: 今日头条
+    display_color: "#FF4D4F"
+    style: 感性体验型，像朋友聊番，口语化
+    title:
+      max_chars: 30
+      min_chars: 6          # ≤5 字判定偏短（gen_base.quality_check）
+    body:
+      target_chars: 800     # gen_base.quality_check targets
+      max_chars: null       # 无硬上限
+      short_ratio: 0.7      # 低于 target*0.7 判定偏短
+    images:
+      allowed: true
+      required: true        # 无图告警
+      caption: false        # 不渲染图注
+      alt_text: false       # 不写 alt/title
+      wrap_div: true        # <div class="img-block"> 包裹
+      img_margin_bottom: 20px
+    publish:
+      mp_url: https://mp.toutiao.com/
+      login_timeout: 120
+
+  baijia:
+    name: 百家号
+    display_color: "#3B82F6"
+    style: 分析型，有数据有观点有层次，SEO 友好
+    title:
+      max_chars: 64
+      min_chars: 6
+    body:
+      target_chars: 1000
+      max_chars: null
+      short_ratio: 0.7
+    images:
+      allowed: true
+      required: true
+      caption: true         # 唯一渲染 <p class="img-caption"> 的平台
+      alt_text: false
+      wrap_div: true
+      img_margin_bottom: 4px  # 给图注留位，故为 4px
+    publish:
+      mp_url: https://baijiahao.baidu.com/
+      login_timeout: 120
+
+  bilibili:
+    name: B站
+    display_color: "#FB7299"
+    style: 争议讨论型，口语弹幕梗，抛问题引评论
+    title:
+      max_chars: 50
+      min_chars: 6
+    body:
+      target_chars: 600
+      max_chars: null
+      short_ratio: 0.7
+    images:
+      allowed: true
+      required: true
+      caption: false
+      alt_text: true        # 唯一写 alt/title 的平台
+      wrap_div: true
+      img_margin_bottom: 20px
+    publish:
+      mp_url: https://member.bilibili.com/
+      login_timeout: 120
+
+  xhs:
+    name: 小红书
+    display_color: "#FF2442"
+    style: 情感/悬念型，短句分行，用 · 做分隔
+    title:
+      max_chars: 20
+      min_chars: 6
+    body:
+      target_chars: 100     # gen_base.quality_check targets
+      max_chars: 1000       # ★ 硬上限：纯文字 ≤1000 字
+      short_ratio: 0.7
+    images:
+      allowed: false        # ★ 纯文字无图：占位符一律剔除
+      required: false
+      caption: false
+      alt_text: false
+      wrap_div: false
+      img_margin_bottom: null
+    publish:
+      mp_url: https://creator.xiaohongshu.com/
+      login_timeout: 120
+
+# ── 数据看板换算参数（Phase 2 新增） ────────────────────────────────────────
+analytics:
+  # 每千次阅读的预估收益，单位「分」。
+  # 现状：头条原创标签待开通、百家号分成待确认（见《国漫笔记重启方案》§1.5），
+  # 真实 RPM 未知，因此一律填 0 —— /analytics 宁可显示「未配置 RPM」，
+  # 也绝不用一个编出来的系数把预估收益说成真收益（坑 3：禁止假成功）。
+  # 后台开通后把真实值填进来即可自动生效，无需改代码。
+  revenue_rpm_cents:
+    toutiao: 0
+    baijia: 0
+    bilibili: 0
+    xhs: 0
+
+# ── 追踪表里的平台中文名 ↔ 平台 key 映射（历史 121 条 tracking 用中文名） ──
+tracking_aliases:
+  今日头条: toutiao
+  百家号: baijia
+  B站: bilibili
+  小红书: xhs

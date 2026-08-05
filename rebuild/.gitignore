@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 密钥：只提交 .env.example
+.env
+.env.*
+!.env.example
+
+# 本地数据库与缓存
+*.db
+*.db-journal
+*.sqlite3
+.cache/
+
+# 脚本产物（demo_closed_loop.py --out 落地的预览 HTML）
+var/
+
+# 前端
+node_modules/
+.next/
+dist/
+build/
+
+# 系统
+.DS_Store

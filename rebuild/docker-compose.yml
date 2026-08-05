@@ -1,0 +1,58 @@
+# Yolo 的国漫笔记 · 本地/服务器一键起（Phase 4 / Epic 4.2）
+#
+#   docker compose up --build
+#     前端 http://localhost:3000   后端 http://localhost:8000/docs
+#
+# 密钥只走环境变量：先 `export ZHIPU_API_KEY=...`（或在同目录放 .env），
+# 镜像里、compose 文件里都不出现任何真实值。不配也能跑，只是 /generate 会明确报错，
+# 不会假装生成成功。
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: guoman-notes-backend:phase4
+    ports:
+      - "8000:8000"
+    environment:
+      # 唯一数据源。要换 Postgres 只改这一行：postgresql+psycopg://user:pw@db:5432/guoman
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/app.db}
+      # 密钥由宿主环境注入；未设置时为空，后端会如实报「未配置」
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-zhipu}
+      APP_ENV: ${APP_ENV:-prod}
+      IMG_BASE_URL: ${IMG_BASE_URL:-/images}
+    volumes:
+      # 数据库持久化；素材目录按需挂载后再设 MATERIALS_ROOT=/materials
+      - backend-data:/data
+      # - ./materials:/materials:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=4).status==200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    image: guoman-notes-frontend:phase4
+    ports:
+      - "3000:3000"
+    environment:
+      # 服务端转发地址：容器内走服务名，浏览器永远只访问同源 /api/*
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://backend:8000}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  backend-data:
