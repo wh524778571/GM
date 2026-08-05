@@ -74,17 +74,37 @@ rebuild/
 
 ## 运行
 
+### 后端（FastAPI · :8000）
+
 ```bash
-PY=/Users/wuhao/.workbuddy/binaries/python/envs/default/bin
 cd rebuild/backend
 
-cp .env.example .env          # 按需填 ZHIPU_API_KEY
-$PY/pip install -r requirements.txt
+python -m venv .venv && source .venv/bin/activate   # 可选：隔离依赖
+pip install -r requirements.txt
 
-$PY/alembic upgrade head      # 建表：articles / tracking / materials / weekly_plan
-$PY/python scripts/index_archive_materials.py   # 可选：导入 825 条归档素材
-$PY/uvicorn app.main:app --reload --port 8000
+cp .env.example .env          # 按需填 ZHIPU_API_KEY（不填也能起，仅 /generate 会明确报错）
+alembic upgrade head          # 建表：articles / tracking / materials / weekly_plan
+# 可选：导入 825 条归档素材（首跑后才会有素材数据）
+python scripts/index_archive_materials.py
+uvicorn app.main:app --reload --port 8000
 ```
+
+### 前端（Next.js · :3000）
+
+```bash
+cd rebuild/frontend
+npm install
+npm run dev              # 开发模式（热更新）
+# 生产模式：
+#   npm run build && npm run start
+```
+
+> 前端默认通过同源 `/api/*` 服务端代理转发到后端 `http://localhost:8000`，
+> 密钥永不进浏览器。生产构建可用环境变量 `BACKEND_BASE_URL` 覆盖转发地址。
+
+### 一键起（Docker Compose）
+
+见下方「容器化」一节：`docker compose up --build` 同时拉起前后端。
 
 ### 配置 AI 密钥
 
@@ -100,15 +120,15 @@ AI_PROVIDER=zhipu          # 想离线联调改成 mock
 不会退化成 mock 假装生成成功。`GET /health` 里的 `zhipu_api_key_configured`
 只回「是否已配置」，永不回显密钥内容。
 
-### 验证脚本（失败一律非 0 退出）
+### 验证脚本（失败一律非 0 退出，均需在 `rebuild/backend` 目录下执行）
 
 ```bash
-$PY/python -m pytest tests/ -q                    # 78 项：退避/风格继承/端点/发布闭环
-$PY/python scripts/demo_closed_loop.py            # 闭环演示（默认 mock，跑完自动清理）
-$PY/python scripts/demo_closed_loop.py --keep --out ./var/demo   # 保留数据+落地预览 HTML
-$PY/python scripts/verify_prompt_parity.py        # 人设/模板逐字一致
-$PY/python scripts/verify_render_parity.py        # 渲染 1:1，12/12
-$PY/python scripts/regress_character_matching.py  # 配图角色名匹配，18/18
+python -m pytest tests/ -q                    # 78 项：退避/风格继承/端点/发布闭环
+python scripts/demo_closed_loop.py            # 闭环演示（默认 mock，跑完自动清理）
+python scripts/demo_closed_loop.py --keep --out ./var/demo   # 保留数据+落地预览 HTML
+python scripts/verify_prompt_parity.py        # 人设/模板逐字一致
+python scripts/verify_render_parity.py        # 渲染 1:1，12/12
+python scripts/regress_character_matching.py  # 配图角色名匹配，18/18
 ```
 
 ## 接口
@@ -274,15 +294,26 @@ docker compose up --build
   全部运行时注入；`.dockerignore` 明确排除 `.env`、`*.db`。
 - 换 Postgres 只改 `DATABASE_URL` 一行，代码零改动（单一数据源的兑现方式）。
 
-### CI 与清理
+### CI 与清理（已验证：GitHub Actions 首次推送即全绿）
 
-`.github/workflows/ci.yml`（ubuntu-latest）三个 job：
+`.github/workflows/ci.yml`（ubuntu-latest，push / PR / 手动 `workflow_dispatch` 均可触发）三个 job，各自独立、谁红谁负责：
 
 | job | 内容 |
 | --- | --- |
-| backend | Python 3.13 → `ruff check .` → `alembic upgrade head` → `pytest` |
-| frontend | Node 20 → `npm ci` → `next lint` → `tsc --noEmit` → `next build` |
-| guardrails | grep 红线：无 `sqlite3.connect(`、无 `sips` 调用、无写死密钥、发布模块无网络调用 |
+| backend | Python 3.13 → `ruff check .`（pin 0.16.1）→ 干净库 `alembic upgrade head` → `pytest` |
+| frontend | Node 22 → `npm ci` → `npm run build`（next build 内含类型检查；未配 eslint 故不跑 `next lint`，避免 CI 卡交互） |
+| guardrails | 6 道诚实发布红线（见下） |
+
+6 道红线（与 `tests/test_publish.py` 互为双保险，源码层面再扫一次）：
+
+1. **唯一数据源**：禁止 `settings.DATABASE_URL` 之外的 `sqlite3.connect(`
+2. **跨平台**：禁止 macOS 专有 `sips` 调用（图片处理一律走 Pillow）
+3. **发布层不联网**：`services/publishing/` 不得含 `httpx/requests/selenium/...`
+4. **`published` 唯一写入点**：全工程只有 `confirm_publish()` 能写 `state=published`
+5. **无硬编码密钥**：仓库内不得出现真实 `ZHIPU_API_KEY` 值
+6. **密钥不进浏览器**：客户端组件不得读 `process.env.*_SECRET`，不得用 `NEXT_PUBLIC_*` 携密钥
+
+> 红线已本地实跑确认无误报；`.github/` 须位于**仓库根**（GitHub 只认根目录 `.github/workflows/`）。
 
 清理：`rebuild/` 下无 `gen_*.py`、无散落的 `sqlite3.connect`；
 仓库根那个 0 字节的游离 `app.db`（错误工作目录下被 SQLite 顺手建出来的空库）
