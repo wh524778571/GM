@@ -38,6 +38,12 @@ class TopicRecommendation(Base):
     # 写文章时用的类型：depth / info
     article_type: Mapped[str] = mapped_column(String(20), nullable=False, default="depth")
 
+    # 爆款策划框架（wechat-viral-topic）产出
+    # viral_genes：命中的「爆款基因」标签 JSON 串，如 '["情绪钩子","信息差"]'
+    viral_genes: Mapped[str] = mapped_column(Text, default="[]")
+    # viral_why：为什么这篇能爆 / 为什么现在值得写（20-40字，结合热点或痛点）
+    viral_why: Mapped[str] = mapped_column(Text, default="")
+
     # 用户「不再推荐」→ True，永久不推
     blacklisted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 历史累计推荐次数

@@ -42,6 +42,15 @@ def _today() -> str:
 
 
 def _to_out(t: TopicRecommendation, today: str) -> TopicOut:
+    import json as _json
+
+    genes: list[str] = []
+    try:
+        parsed = _json.loads(t.viral_genes or "[]")
+        if isinstance(parsed, list):
+            genes = [str(g) for g in parsed if str(g).strip()]
+    except Exception:
+        genes = []
     return TopicOut(
         id=t.id,
         date=t.date,
@@ -53,6 +62,8 @@ def _to_out(t: TopicRecommendation, today: str) -> TopicOut:
         blacklisted=t.blacklisted,
         recommend_count=t.recommend_count,
         fresh=(t.date == today),
+        viral_genes=genes,
+        viral_why=t.viral_why or "",
     )
 
 

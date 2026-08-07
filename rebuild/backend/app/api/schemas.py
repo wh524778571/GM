@@ -367,6 +367,9 @@ class TopicOut(BaseModel):
     blacklisted: bool = False
     recommend_count: int = 1
     fresh: bool = True  # 是否今日推荐
+    # 爆款策划框架（wechat-viral-topic）产出：命中的「爆款基因」标签 + 为什么能爆
+    viral_genes: list[str] = []
+    viral_why: str = ""
 
 
 class TopicTodayResponse(BaseModel):

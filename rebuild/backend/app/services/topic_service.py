@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from sqlalchemy.orm import Session
@@ -34,6 +35,27 @@ def _norm_key(title: str) -> str:
     """归一化选题标题为去重键：去标点、小写、截断。"""
     s = re.sub(r"[^\w一-鿿]", "", (title or "").lower())
     return s[:60]
+
+
+# 落库前把模型偶发编造的具体数字中和成定性描述（prompt 已严禁，但模型仍偶发）。
+# 顺序：先匹配带动词的具体模式，再用「亿/万」兜底，避免硬数字进标题/文章。
+_NUM_NEUTRALIZERS: list[tuple[str, str]] = [
+    (r"票房突破\d+亿", "票房大爆"),
+    (r"突破\d+亿", "大爆"),
+    (r"票房\d+亿", "票房大爆"),
+    (r"播放量\d+万?", "热度走高"),
+    (r"排名(前|第)?\d+", "热度靠前"),
+    (r"第\d+集", ""),  # prompt 要求「不知道集数就不写」，出现了就删
+    (r"\d+亿", "大爆"),
+    (r"\d+万", "走高"),
+]
+
+
+def _neutralize_numbers(s: str) -> str:
+    """把编造的具体数字替换成定性描述；无数字则原样返回。"""
+    for pat, rep in _NUM_NEUTRALIZERS:
+        s = re.sub(pat, rep, s)
+    return s
 
 
 def generate_topics(today: str, session: Session, *, count: int = 5) -> dict:
@@ -61,15 +83,19 @@ def generate_topics(today: str, session: Session, *, count: int = 5) -> dict:
         for s in suggestions:
             if len(collected) >= count:
                 break
-            # 模型偶尔仍会写书名号《》：入库前统一剥离，保证标题干净（展示/去重一致）
+            # 模型偶尔仍会写书名号《》：标题/摘要/理由统一剥离，保证展示与去重一致
             clean_title = re.sub(r"[《》]", "", (s.get("title") or "")).strip()
             if not clean_title:
                 continue
-            s["title"] = clean_title
+            # 先按原始标题算去重键（与是否已中和无关），再对入库文本做数字中和
             key = _norm_key(clean_title)
             if key in seen_keys or key in recent_keys or key in blacklisted_keys:
                 continue
             seen_keys.add(key)
+            s["title"] = _neutralize_numbers(clean_title)
+            s["summary"] = _neutralize_numbers(re.sub(r"[《》]", "", (s.get("summary") or "")).strip())
+            s["angle"] = _neutralize_numbers(re.sub(r"[《》]", "", (s.get("angle") or "")).strip())
+            s["why"] = _neutralize_numbers(re.sub(r"[《》]", "", (s.get("why") or "")).strip())
             collected.append(s)
 
     persisted: list[TopicRecommendation] = []
@@ -85,6 +111,8 @@ def generate_topics(today: str, session: Session, *, count: int = 5) -> dict:
                 summary=s.get("summary") or "",
                 angle=s.get("angle") or "",
                 article_type=s.get("article_type") or "depth",
+                viral_genes=json.dumps(s.get("genes") or [], ensure_ascii=False),
+                viral_why=s.get("why") or "",
                 blacklisted=False,
                 recommend_count=1,
             )

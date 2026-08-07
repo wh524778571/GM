@@ -296,6 +296,8 @@ class GenerationService:
                     "summary": (it.get("summary") or "").strip(),
                     "angle": (it.get("angle") or "").strip(),
                     "article_type": atype,
+                    "genes": _as_gene_list(it.get("genes")),
+                    "why": (it.get("why") or "").strip(),
                 }
             )
         return out
@@ -610,6 +612,26 @@ def _smart_truncate(text: str, limit: int) -> str:
     if best >= max(4, limit // 2):
         return window[:best].rstrip(_TITLE_CUT_CHARS)
     return window.rstrip()
+
+# 爆款基因合法集合（与 TOPIC_SYSTEM_PROMPT 一致）；模型偶发拼写漂移时只保留合法项
+_VALID_GENES = ("情绪钩子", "信息差", "身份标签", "行动触发")
+
+
+def _as_gene_list(value: Any) -> list[str]:
+    """把模型输出的 genes 规范成合法基因列表（最多 3 个）。
+
+    模型可能返回数组或逗号分隔字符串；非法项/超量一律丢弃，避免脏数据落库。
+    """
+    raw: list[str] = []
+    if isinstance(value, list):
+        raw = [str(x).strip() for x in value if str(x).strip()]
+    elif isinstance(value, str):
+        s = value
+        for sep in (",", "，", "、"):
+            s = s.replace(sep, ",")
+        raw = [p.strip() for p in s.split(",") if p.strip()]
+    return [g for g in raw if g in _VALID_GENES][:3]
+
 
 def _extract_json_list(raw: str) -> list[dict]:
     """容忍地把模型输出解析成对象列表。
