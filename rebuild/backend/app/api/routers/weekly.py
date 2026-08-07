@@ -99,3 +99,15 @@ def update_weekly_task(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return _to_out(task)
+
+
+@router.delete("/weekly-plan/{task_id}")
+def delete_weekly_task(task_id: int, session: Session = Depends(get_session)) -> dict:
+    """物理删除一条周计划任务。周计划是轻量规划面，不做软删留痕。"""
+    repo = WeeklyPlanRepository(session)
+    task = repo.get(task_id)
+    if task is None:
+        raise HTTPException(404, f"周计划任务不存在：{task_id}")
+    session.delete(task)
+    session.flush()
+    return {"deleted": True, "id": task_id}

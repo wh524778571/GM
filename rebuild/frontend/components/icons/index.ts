@@ -5,4 +5,5 @@ export { IconCalendar } from "./IconCalendar";
 export { IconChart } from "./IconChart";
 export { IconImage } from "./IconImage";
 export { IconFolder } from "./IconFolder";
+export { IconSpark } from "./IconSpark";
 export type { IconProps } from "./types";

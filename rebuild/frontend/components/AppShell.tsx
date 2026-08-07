@@ -1,3 +1,5 @@
+"use client";
+
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -7,15 +9,30 @@ export interface AppShellProps {
   title: string;
   subtitle?: string;
   actionLabel?: string;
+  onAction?: () => void;
+  onSearch?: (q: string) => void;
   children: ReactNode;
 }
 
-export function AppShell({ title, subtitle, actionLabel, children }: AppShellProps) {
+export function AppShell({
+  title,
+  subtitle,
+  actionLabel,
+  onAction,
+  onSearch,
+  children,
+}: AppShellProps) {
   return (
     <div className="flex min-h-screen w-full overflow-x-hidden bg-root">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar title={title} subtitle={subtitle} actionLabel={actionLabel} />
+        <Topbar
+          title={title}
+          subtitle={subtitle}
+          actionLabel={actionLabel}
+          onAction={onAction}
+          onSearch={onSearch}
+        />
         <main className="flex-1 px-6 py-6">
           <div className="mx-auto w-full max-w-content">{children}</div>
         </main>

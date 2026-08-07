@@ -1,0 +1,28 @@
+# 项目数据（非缓存，勿提交）
+.workbuddy/
+
+# Python
+__pycache__/
+*.pyc
+rebuild/backend/app.db
+rebuild/backend/*.sqlite3
+rebuild/backend/.env
+
+# Node / Next.js
+node_modules/
+rebuild/frontend/.next/
+rebuild/frontend/.next-dev.*
+rebuild/frontend/.watchdog.log
+
+# 日志
+*.log
+
+# 临时归档/清理产物
+_cleanup_trash/
+phase0-archive/
+phase0-archive.sh
+*.zip
+
+# 本地产物
+rebuild/backend/uploads/
+rebuild/frontend/public/uploads/

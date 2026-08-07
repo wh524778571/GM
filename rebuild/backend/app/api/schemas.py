@@ -146,6 +146,19 @@ class ArticleListResponse(BaseModel):
     items: list[ArticleOut]
 
 
+class ImageBindRequest(BaseModel):
+    """手动把某张素材绑定到文章里的配图占位符。"""
+
+    placeholder: str = Field(..., description="占位符原文，如「【配图1：沧元图_破境瞬间】」")
+    material_id: int = Field(..., description="素材库素材 id")
+
+
+class ImageBindResponse(BaseModel):
+    placeholder: str
+    url: str
+    matched: bool = True
+
+
 # ── 生成 ─────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
     topic: str = Field(..., min_length=1, description="选题（主题句）")
@@ -165,6 +178,32 @@ class GenerateResponse(BaseModel):
     article_id: str
     persisted: bool
     result: dict
+
+
+# ── 润色 / 导出 ───────────────────────────────────────────────
+class PolishRequest(BaseModel):
+    text: str | None = Field(None, description="待润色文本；缺省则取已落库的 content_text")
+    platform: str | None = Field(None, description="按某平台调性润色，缺省为通用")
+    requirement: str = Field("", description="额外润色要求")
+    provider: str | None = Field(None, description="zhipu | mock")
+    persist: bool = Field(False, description="是否把润色结果写回 content_text")
+
+
+class PolishResponse(BaseModel):
+    article_id: str
+    platform: str | None = None
+    persisted: bool
+    before_chars: int
+    after_chars: int
+    polished: str
+
+
+class ExportResponse(BaseModel):
+    article_id: str
+    filename: str
+    format: str
+    char_count: int
+    content: str
 
 
 # ── 追踪 ─────────────────────────────────────────────────────
@@ -310,3 +349,46 @@ class PublishPacketsResponse(BaseModel):
     published_count: int
     total_platforms: int
     packets: list[dict[str, Any]]
+
+
+# ══════════════════════════════════════════════════════════════
+# 今日推荐选题（常驻功能）
+# ══════════════════════════════════════════════════════════════
+
+
+class TopicOut(BaseModel):
+    id: int
+    date: str
+    title: str
+    topic_type: str
+    summary: str = ""
+    angle: str = ""
+    article_type: str = "depth"
+    blacklisted: bool = False
+    recommend_count: int = 1
+    fresh: bool = True  # 是否今日推荐
+
+
+class TopicTodayResponse(BaseModel):
+    date: str
+    items: list[TopicOut]
+    needs_generation: bool
+    blacklisted_count: int = 0
+
+
+class TopicGenerateResponse(BaseModel):
+    date: str
+    items: list[TopicOut]
+    generated: int
+
+
+class TopicBlacklistResponse(BaseModel):
+    id: int
+    blacklisted: bool
+
+
+class TopicWriteResponse(BaseModel):
+    article_id: str
+    ok: bool
+    titles: dict[str, str]
+    qa: dict[str, Any]

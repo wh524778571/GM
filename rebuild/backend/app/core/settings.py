@@ -54,6 +54,10 @@ class Settings:
         # ── 图片服务基地址（渲染 <img src> 用） ─────────────────
         self.img_base_url: str = os.getenv("IMG_BASE_URL", "/images")
 
+        # ── 项目文件浏览根目录（「项目文件」屏只读列表 + uploads 写入） ──
+        # 默认指向仓库上一级（设计稿 / 方案文档 / 规则源都在这一层）。
+        self.files_root: Path = Path(os.getenv("FILES_ROOT", str(BACKEND_ROOT.parents[1])))
+
         # ── AI 密钥：只读环境变量，缺失即为 None，绝不落盘 ──────
         self.zhipu_api_key: str | None = os.getenv("ZHIPU_API_KEY") or None
 
@@ -67,7 +71,7 @@ class Settings:
         self.ai_max_attempts: int = int(os.getenv("AI_MAX_ATTEMPTS", "3"))
         self.ai_base_delay_seconds: float = float(os.getenv("AI_BASE_DELAY_SECONDS", "1"))
         self.ai_max_tokens: int = int(os.getenv("AI_MAX_TOKENS", "16000"))
-        self.ai_temperature: float = float(os.getenv("AI_TEMPERATURE", "0.9"))
+        self.ai_temperature: float = float(os.getenv("AI_TEMPERATURE", "0.6"))
 
         self.app_env: str = os.getenv("APP_ENV", "dev")
 

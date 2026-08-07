@@ -5,3 +5,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   return proxyRequest(req, "/materials");
 }
+
+export async function POST(req: Request) {
+  return proxyRequest(req, "/materials");
+}

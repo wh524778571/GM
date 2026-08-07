@@ -11,13 +11,15 @@ export async function proxyRequest(req: Request, backendPath: string): Promise<N
   const incoming = new URL(req.url);
   const target = `${BACKEND_BASE_URL}${backendPath}${incoming.search}`;
 
-  const init: RequestInit = {
-    method: req.method,
-    cache: "no-store",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-  };
+  // 透传原始 Content-Type：multipart 上传必须保留 boundary，写死 application/json 会让后端 422
+  const contentType = req.headers.get("content-type");
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (contentType) headers["Content-Type"] = contentType;
+
+  const init: RequestInit = { method: req.method, cache: "no-store", headers };
   if (req.method !== "GET" && req.method !== "HEAD") {
-    init.body = await req.text();
+    // 用 arrayBuffer 而非 text：二进制文件流经 text() 会被 UTF-8 解码破坏
+    init.body = await req.arrayBuffer();
   }
 
   try {

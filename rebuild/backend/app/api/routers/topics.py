@@ -1,0 +1,113 @@
+"""今日推荐选题（Epic：常驻选题功能）。
+
+- GET  /topics/today       今日列表（去重+黑名单过滤），无则 needs_generation=True
+- POST /topics/generate    触发生成 5 个选题（LLM），落库返回
+- POST /topics/{id}/blacklist   标记「不再推荐」（blacklisted=True）；body 可传 {blacklisted:false} 恢复
+- POST /topics/{id}/write  用该选题写四平台草稿，返回 article_id（前端跳转文章详情）
+
+错误显式：无 AI 密钥 → 503；文章生成限流/失败 → 502；质检不过 → 422；选题不存在 → 404。
+"""
+
+from __future__ import annotations
+
+from datetime import date as date_type
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.api.schemas import (
+    TopicBlacklistResponse,
+    TopicGenerateResponse,
+    TopicOut,
+    TopicTodayResponse,
+    TopicWriteResponse,
+)
+from app.core.settings import settings
+from app.db.base import get_session
+from app.models.topic_recommendation import TopicRecommendation
+from app.repositories.topic_repository import TopicRepository
+from app.services import topic_service
+from app.services.ai import AIConfigError, AIProviderError, GenerationError
+
+router = APIRouter(tags=["topics"])
+
+
+class TopicBlacklistRequest(BaseModel):
+    blacklisted: bool = True
+
+
+def _today() -> str:
+    return date_type.today().strftime("%Y-%m-%d")
+
+
+def _to_out(t: TopicRecommendation, today: str) -> TopicOut:
+    return TopicOut(
+        id=t.id,
+        date=t.date,
+        title=t.title,
+        topic_type=t.topic_type,
+        summary=t.summary or "",
+        angle=t.angle or "",
+        article_type=t.article_type,
+        blacklisted=t.blacklisted,
+        recommend_count=t.recommend_count,
+        fresh=(t.date == today),
+    )
+
+
+@router.get("/topics/today", response_model=TopicTodayResponse)
+def topics_today(session: Session = Depends(get_session)) -> TopicTodayResponse:
+    today = _today()
+    repo = TopicRepository(session)
+    items = repo.list_today(today)
+    blacklisted = repo.list_blacklisted()
+    return TopicTodayResponse(
+        date=today,
+        items=[_to_out(t, today) for t in items],
+        needs_generation=len(items) == 0,
+        blacklisted_count=len(blacklisted),
+    )
+
+
+@router.post("/topics/generate", response_model=TopicGenerateResponse)
+def topics_generate(session: Session = Depends(get_session)) -> TopicGenerateResponse:
+    today = _today()
+    try:
+        result = topic_service.generate_topics(today, session, count=5)
+    except AIConfigError as exc:
+        raise HTTPException(503, exc.to_dict()) from exc
+    return TopicGenerateResponse(
+        date=result["date"],
+        items=[_to_out(t, today) for t in result["items"]],
+        generated=result["generated"],
+    )
+
+
+@router.post("/topics/{topic_id}/blacklist", response_model=TopicBlacklistResponse)
+def topic_blacklist(
+    topic_id: int,
+    payload: TopicBlacklistRequest | None = None,
+    session: Session = Depends(get_session),
+) -> TopicBlacklistResponse:
+    value = payload.blacklisted if payload is not None else True
+    repo = TopicRepository(session)
+    obj = repo.set_blacklist(topic_id, value)
+    if obj is None:
+        raise HTTPException(404, f"选题不存在：{topic_id}")
+    return TopicBlacklistResponse(id=obj.id, blacklisted=obj.blacklisted)
+
+
+@router.post("/topics/{topic_id}/write", response_model=TopicWriteResponse)
+def topic_write(topic_id: int, session: Session = Depends(get_session)) -> TopicWriteResponse:
+    try:
+        result = topic_service.write_topic_article(topic_id, session)
+    except LookupError:
+        raise HTTPException(404, f"选题不存在：{topic_id}") from None
+    except AIConfigError as exc:
+        raise HTTPException(503, exc.to_dict()) from exc
+    except GenerationError as exc:
+        raise HTTPException(422, exc.to_dict()) from exc
+    except AIProviderError as exc:
+        raise HTTPException(502, exc.to_dict()) from exc
+    return TopicWriteResponse(**result)

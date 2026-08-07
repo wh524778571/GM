@@ -7,6 +7,7 @@ mistune==3.3.2
 PyYAML>=6.0
 pillow==12.2.0
 httpx==0.28.1        # 智谱接口调用 + FastAPI TestClient
+python-multipart==0.0.20  # 素材 / 项目文件上传（multipart form-data）
 
 # 开发 / 测试
 pytest==9.1.1

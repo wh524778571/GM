@@ -22,10 +22,10 @@ placeholder:
   # 【配图1：作品名_场景描述】，全角/半角冒号都接受
   pattern: '【配图(\d+)[:：](.*?)】'
   template: '【配图{n}：{desc}】'
-  # 建议配图密度：约每 N 字 1 张（不含 xhs）
-  chars_per_image: 300
+  # 建议配图密度：约每 N 字 1 张（不含 xhs）；文章拉长后同步调大，否则会一直误报密度不足
+  chars_per_image: 600
   # 单篇建议最少配图数（不含 xhs）
-  min_images: 5
+  min_images: 4
 
 platforms:
 
@@ -37,7 +37,7 @@ platforms:
       max_chars: 30
       min_chars: 6          # ≤5 字判定偏短（gen_base.quality_check）
     body:
-      target_chars: 800     # gen_base.quality_check targets
+      target_chars: 2500    # 2000–3000 字区间（核心诉求）
       max_chars: null       # 无硬上限
       short_ratio: 0.7      # 低于 target*0.7 判定偏短
     images:
@@ -59,7 +59,7 @@ platforms:
       max_chars: 64
       min_chars: 6
     body:
-      target_chars: 1000
+      target_chars: 2500
       max_chars: null
       short_ratio: 0.7
     images:
@@ -81,7 +81,7 @@ platforms:
       max_chars: 50
       min_chars: 6
     body:
-      target_chars: 600
+      target_chars: 2500
       max_chars: null
       short_ratio: 0.7
     images:
@@ -103,7 +103,7 @@ platforms:
       max_chars: 20
       min_chars: 6
     body:
-      target_chars: 100     # gen_base.quality_check targets
+      target_chars: 700     # ★ 受硬上限 1000 约束：取 700 使 ±30% 上限(910) 不破 1000
       max_chars: 1000       # ★ 硬上限：纯文字 ≤1000 字
       short_ratio: 0.7
     images:

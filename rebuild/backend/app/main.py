@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -60,6 +61,22 @@ app = FastAPI(
 # 坑 1 防护：路由集中注册，不存在「写了端点忘了挂」
 for _router in ROUTERS:
     app.include_router(_router)
+
+# 开发环境表保证：新增表（如 topic_recommendations）在 import 时幂等创建；
+# 生产由 alembic 管理（见 alembic/versions），此处对已存在的表无副作用。
+from app.db.base import Base, engine  # noqa: E402
+
+Base.metadata.create_all(engine)
+
+# ── 素材图片静态服务 ──────────────────────────────────────────
+# MaterialOut.url / 渲染 <img src> 都指向 IMG_BASE_URL（默认 /images）。
+# 只有 MATERIALS_ROOT 真实存在时才挂载，否则保持 404——不做「看起来能出图」的假象。
+if settings.materials_root and settings.materials_root.is_dir():
+    app.mount(
+        settings.img_base_url if settings.img_base_url.startswith("/") else "/images",
+        StaticFiles(directory=settings.materials_root),
+        name="images",
+    )
 
 SAMPLE_ARTICLE = """# 凡人修仙传第 177 集：韩立终于亮出底牌
 

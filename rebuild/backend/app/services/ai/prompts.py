@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import hashlib
 
+from .style_rules import STYLE_GUIDE, STRUCTURE_HINTS
+
 # ══════════════════════════════════════════════════════════════
 # 以下常量逐字来自归档文件，禁止修改（改动会被 verify_prompt_parity.py 拦截）
 # ══════════════════════════════════════════════════════════════
@@ -92,6 +94,37 @@ PROMPTS_BASE = {
 # 以上为归档原文，以下为新增的调用辅助（不改动上面的字符串）
 # ══════════════════════════════════════════════════════════════
 
+# 选题策划 prompt（「今日推荐选题」功能专用，与文章生成 SYSTEM_PROMPT 完全隔离，
+# 不进入文章生成链路，故不触发 parity 校验；只负责产出选题草案，不写四平台正文）。
+TOPIC_TYPES = ["一线资讯", "小众剧情", "趣事", "人物生日", "大事记", "常青候选"]
+
+TOPIC_SYSTEM_PROMPT = """你是「Yolo的国漫笔记」的选题策划助手，负责每天为国漫自媒体账号挑 5 个值得写的选题。
+
+硬性要求：
+1. 只基于你确有把握的真实国漫/动漫事件、作品、角色、档期。拿不准就换一个你确定真实存在的作品/事件来写（如已知在播的国漫、知名IP的已知动态），宁可写"定性"也不要编造"具体数字"。
+2. 标题里【严禁书名号《》】，作品名直接写，如"哪吒之魔童降世"而非"《哪吒之魔童降世》"；标题 ≤28 字、吸睛。
+3. 【严禁编造具体数字】：不要写具体票房、播放量、集数、排名（如"突破50亿""第3130集"）。只能用定性描述，如"票房大爆""热度走高""近期开播""定档在即"。
+4. 每个选题输出对象：title、type（从 {一线资讯,小众剧情,趣事,人物生日,大事记,常青候选} 选一）、summary（一句话钩子，20-40字）、angle（为什么现在值得写，一句）、article_type（depth 或 info）。
+5. 选题覆盖与多样性：5 个至少覆盖 3 种类型。优先布局"昨日/今日一线动漫资讯与最新剧情"；其次小众动漫最新资讯/剧情；也要有一两个"动漫趣事 / 今日动漫人物生日或事迹 / 今日动漫大事记"；常青候选（斗破苍穹停更、暑期新番、光阴之外黑马、沧元图柳七月回归、7月播放榜等）可酌情纳入但不要占满。避免与 avoid_titles / avoid_keys 已出现过的选题雷同。
+6. 只输出一个 JSON 数组（务必带外层方括号 [ ]），元素为对象 {title,type,summary,angle,article_type}，不要任何解释或 Markdown 代码块。"""
+
+# 常青候选示例，写进 user prompt 给用户的标准做锚（不强制模型命中，仅供多样性参考）
+EVERGREEN_HINTS = "斗破苍穹停更, 暑期新番, 光阴之外黑马, 沧元图柳七月回归, 7月播放榜"
+
+
+def build_topic_prompt(
+    today: str, count: int, avoid_titles: list[str], avoid_keys: list[str]
+) -> str:
+    parts = [
+        f"当前日期：{today}",
+        f"请输出 {count} 个选题（JSON 数组）。",
+        f"常青候选参考（可写，但不必都写）：{EVERGREEN_HINTS}",
+    ]
+    if avoid_titles:
+        parts.append("以下选题已经推荐过，请避免雷同：" + "；".join(avoid_titles[:10]))
+    return "\n".join(parts)
+
+
 ARTICLE_TYPES = tuple(PROMPTS_BASE.keys())
 
 # 默认补充要求：与归档 generate_draft() 的默认值一致
@@ -123,6 +156,11 @@ def build_user_prompt(title: str, article_type: str = "depth", requirement: str 
         req_text = WEITOUTIAO_REQUIREMENT
     else:
         req_text = DEFAULT_REQUIREMENT
+    # 追加账号文风铁律（来自 用户偏好.md / 操作手册），保证每次生成都吃到，
+    # 不改动 parity 保护的 SYSTEM_PROMPT / PROMPTS_BASE。
+    req_text = f"{req_text}\n{STYLE_GUIDE}"
+    if article_type in STRUCTURE_HINTS:
+        req_text = f"{req_text}\n{STRUCTURE_HINTS[article_type]}"
     return template.format(title=title, requirement=req_text)
 
 

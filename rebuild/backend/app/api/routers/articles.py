@@ -17,13 +17,21 @@ from app.api.schemas import (
     ArticleListResponse,
     ArticleOut,
     ArticleUpdate,
+    ExportResponse,
     GenerateRequest,
     GenerateResponse,
+    ImageBindRequest,
+    ImageBindResponse,
+    PolishRequest,
+    PolishResponse,
 )
+from app.core.platform_rules import PlatformRulesError, load_registry
 from app.core.settings import settings
 from app.db.base import get_session
 from app.models.article import Article, ArticleStatus
 from app.repositories.article_repository import ArticleRepository
+from app.repositories.material_repository import MaterialRepository
+from app.services.image_matching.matcher import ImageMatcherService
 from app.services import qa
 from app.services.ai import (
     AIConfigError,
@@ -32,6 +40,7 @@ from app.services.ai import (
     GenerationService,
     build_provider,
 )
+from app.services.ai.prompts import SYSTEM_PROMPT
 
 router = APIRouter(tags=["articles"])
 
@@ -182,3 +191,173 @@ def qa_article(article_id: str, session: Session = Depends(get_session)) -> dict
         article.titles or {}, article.contents or {}, article.image_sources or {}
     )
     return {"article_id": article_id, **report.to_dict()}
+
+
+# ── 润色（走 AI，失败即显式报错）──────────────────────────────
+POLISH_INSTRUCTION = """请对下面这段国漫自媒体稿件做润色，只做「润色」不做「改写选题」：
+
+硬性要求：
+1. 保留全部事实、数据、角色名、集数，禁止新增任何未出现的事实。
+2. 保留全部 【配图N：作品名_用途】 占位符，位置可微调，不可删改文字。
+3. 去 AI 味：少用工整排比、少堆形容词，保留口语节奏和「人」的呼吸感。
+4. 标题里不出现书名号《》。
+5. 结尾保留或补上一句互动引导。
+6. 直接输出润色后的正文全文，不要任何解释、前言或 Markdown 代码块包裹。
+"""
+
+
+@router.post("/articles/{article_id}/polish", response_model=PolishResponse)
+def polish_article(
+    article_id: str, payload: PolishRequest, session: Session = Depends(get_session)
+) -> PolishResponse:
+    repo = ArticleRepository(session)
+    article = _get_or_404(repo, article_id)
+
+    source_text = (payload.text or article.content_text or "").strip()
+    if not source_text:
+        raise HTTPException(
+            422,
+            {"code": "NOTHING_TO_POLISH", "message": "既没传 text，文章也没有 content_text"},
+        )
+
+    platform_hint = ""
+    if payload.platform:
+        try:
+            key = load_registry().normalize_platform(payload.platform)
+            rules = load_registry().get(key)
+            platform_hint = (
+                f"\n目标平台：{rules.name}"
+                f"（标题上限 {rules.title.max_chars} 字，正文目标 {rules.body.target_chars} 字）"
+            )
+        except PlatformRulesError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    provider_name = payload.provider or settings.ai_provider
+    try:
+        provider = build_provider(provider_name)
+    except AIConfigError as exc:
+        raise HTTPException(503, exc.to_dict()) from exc
+
+    extra = f"\n额外要求：{payload.requirement}" if payload.requirement.strip() else ""
+    from app.services.ai.style_rules import STYLE_GUIDE
+
+    user_prompt = f"{POLISH_INSTRUCTION}{platform_hint}{extra}\n{STYLE_GUIDE}\n\n---\n{source_text}"
+
+    try:
+        polished = provider.generate(
+            SYSTEM_PROMPT,
+            user_prompt,
+            max_tokens=settings.ai_max_tokens,
+            temperature=settings.ai_temperature,
+        ).strip()
+    except AIProviderError as exc:
+        raise HTTPException(502, exc.to_dict()) from exc
+
+    if not polished:
+        raise HTTPException(
+            502, {"code": "EMPTY_POLISH_RESULT", "message": "模型返回空内容，未做任何写入"}
+        )
+
+    persisted = False
+    if payload.persist:
+        article.content_text = polished
+        session.flush()
+        persisted = True
+
+    return PolishResponse(
+        article_id=article_id,
+        platform=payload.platform,
+        persisted=persisted,
+        before_chars=len(source_text),
+        after_chars=len(polished),
+        polished=polished,
+    )
+
+
+# ── 导出（纯本地拼装，不调 AI）────────────────────────────────
+@router.get("/articles/{article_id}/export", response_model=ExportResponse)
+@router.post("/articles/{article_id}/export", response_model=ExportResponse)
+def export_article(
+    article_id: str,
+    platform: str | None = Query(None, description="只导出某平台版本；缺省导出全平台合集"),
+    session: Session = Depends(get_session),
+) -> ExportResponse:
+    article = _get_or_404(ArticleRepository(session), article_id)
+    registry = load_registry()
+
+    titles = article.titles or {}
+    contents = article.contents or {}
+
+    keys: list[str]
+    if platform:
+        try:
+            keys = [registry.normalize_platform(platform)]
+        except PlatformRulesError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    else:
+        keys = [k for k in registry.keys() if k in contents] or list(contents.keys())
+
+    lines: list[str] = [f"# {article.title}", "", f"- article_id: {article.article_id}",
+                        f"- status: {article.status}", f"- 导出时间: {article.updated_at}", ""]
+
+    if not keys:
+        core = (article.content_text or "").strip()
+        if not core:
+            raise HTTPException(
+                422,
+                {"code": "NOTHING_TO_EXPORT", "message": "该文章既无四平台内容也无 content_text"},
+            )
+        lines += ["## 正文（未分平台）", "", core, ""]
+    else:
+        for key in keys:
+            name = registry.get(key).name if key in registry.keys() else key
+            lines += [
+                f"## {name}",
+                "",
+                f"**标题**：{titles.get(key, article.title)}",
+                "",
+                (contents.get(key) or "（该平台暂无内容）").strip(),
+                "",
+                "---",
+                "",
+            ]
+
+    body = "\n".join(lines).rstrip() + "\n"
+    suffix = f"_{keys[0]}" if platform and keys else ""
+    return ExportResponse(
+        article_id=article_id,
+        filename=f"{article.article_id}{suffix}.md",
+        format="md",
+        char_count=len(body),
+        content=body,
+    )
+
+
+@router.post("/articles/{article_id}/bind-image", response_model=ImageBindResponse)
+def bind_image(
+    article_id: str,
+    payload: ImageBindRequest,
+    session: Session = Depends(get_session),
+) -> ImageBindResponse:
+    """手动把某张素材绑定到文章里的配图占位符。
+
+    - 写入 article.image_sources[placeholder] = material.path（落库，重载后仍在）
+    - 返回该素材的可访问 url，前端 Writer 预览据此显示真图
+    与自动匹配互补：自动匹配靠文件名，这里让用户显式指定，避免「匹配错图」。
+    """
+    repo = ArticleRepository(session)
+    article = _get_or_404(repo, article_id)
+    mat = MaterialRepository(session).get(payload.material_id)
+    if mat is None:
+        raise HTTPException(
+            404,
+            {"code": "MATERIAL_NOT_FOUND", "message": "素材不存在"},
+        )
+    sources = dict(article.image_sources or {})
+    sources[payload.placeholder] = mat.path
+    article.image_sources = sources
+    session.flush()
+    return ImageBindResponse(
+        placeholder=payload.placeholder,
+        url=ImageMatcherService.build_url(mat),
+    )

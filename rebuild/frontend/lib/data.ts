@@ -7,15 +7,19 @@ import {
   SEED_ARTICLES,
   SEED_ASSET_KPIS,
   SEED_DASHBOARD_KPIS,
+  SEED_FILES,
   SEED_MATERIALS,
   SEED_WEEKLY_TASKS,
 } from "./seed";
 import { formatCny, formatCompact, formatPercent } from "./format";
+import { toImageProxyUrl } from "./media";
 import type {
   ArticleRow,
   ArticleStatus,
+  FileItem,
   Kpi,
   MaterialItem,
+  ProjectFile,
   Sourced,
   WeeklyTask,
 } from "./types";
@@ -62,6 +66,7 @@ interface MaterialOut {
   work?: string | null;
   scene?: string | null;
   episode?: string | null;
+  url?: string | null;
 }
 interface MaterialListResponse {
   total_indexed: number;
@@ -116,6 +121,12 @@ export async function getArticles(): Promise<Sourced<ArticleRow[]>> {
   }));
 
   return { source: "backend", data: rows };
+}
+
+/** 文章按状态计数（用于筛选 chip 上的真实数字）。 */
+export async function getArticleStatusCounts(): Promise<Record<string, number>> {
+  const r = await backendGet<{ by_status: Record<string, number> }>("/articles");
+  return r?.by_status ?? {};
 }
 
 // ── 数据看板 KPI ──────────────────────────────────────────────
@@ -190,21 +201,28 @@ export async function getDashboardKpis(): Promise<Sourced<Kpi[]>> {
 }
 
 // ── 配图管理 ──────────────────────────────────────────────────
-export async function getMaterials(): Promise<Sourced<MaterialItem[]>> {
-  const list = await backendGet<MaterialListResponse>("/materials?limit=12");
+export async function getMaterials(limit = 12): Promise<Sourced<MaterialItem[]>> {
+  const list = await backendGet<MaterialListResponse>(`/materials?limit=${limit}`);
   if (!list || !Array.isArray(list.items) || list.items.length === 0) {
     return { source: "seed", data: SEED_MATERIALS };
   }
   return {
     source: "backend",
-    data: list.items.slice(0, 12).map((m) => ({
+    data: list.items.slice(0, limit).map((m) => ({
       id: m.id,
       stem: m.stem,
       work: m.work ?? "未分类",
       scene: m.scene ?? "待补充用途",
       episode: m.episode ?? null,
+      url: toImageProxyUrl(m.url),
     })),
   };
+}
+
+/** 素材按作品分组计数（筛选 chip 的真实数字）。 */
+export async function getMaterialWorks(): Promise<{ work: string; count: number }[]> {
+  const r = await backendGet<{ works: { work: string; count: number }[] }>("/materials/works");
+  return r?.works ?? [];
 }
 
 export async function getAssetKpis(): Promise<Sourced<Kpi[]>> {
@@ -243,6 +261,63 @@ export async function getWeeklyTasks(): Promise<Sourced<WeeklyTask[]>> {
         ? (t.status as WeeklyTask["status"])
         : "planned",
       note: t.note ?? null,
+    })),
+  };
+}
+
+// ── 项目文件 ──────────────────────────────────────────────────
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const kb = n / 1024;
+  if (kb < 1024) return `${kb.toFixed(0)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}
+
+function seedFilesToItems(files: ProjectFile[]): FileItem[] {
+  return files.map((f) => ({
+    name: f.name,
+    relPath: f.name,
+    kind: f.kind,
+    sizeBytes: 0,
+    size: f.size,
+    updatedAt: f.updatedAt,
+    deletable: false,
+    path: f.name,
+  }));
+}
+
+interface FileOut {
+  name: string;
+  rel_path: string;
+  kind: string;
+  size_bytes: number;
+  updated_at: string;
+  deletable: boolean;
+}
+interface FileListResponse {
+  root: string;
+  total: number;
+  items: FileOut[];
+}
+
+export async function getFiles(): Promise<Sourced<FileItem[]>> {
+  const r = await backendGet<FileListResponse>("/files");
+  if (!r || !Array.isArray(r.items) || r.items.length === 0) {
+    return { source: "seed", data: seedFilesToItems(SEED_FILES) };
+  }
+  return {
+    source: "backend",
+    data: r.items.map((f) => ({
+      name: f.name,
+      relPath: f.rel_path,
+      kind: f.kind,
+      sizeBytes: f.size_bytes,
+      size: formatBytes(f.size_bytes),
+      updatedAt: f.updated_at,
+      deletable: f.deletable,
+      path: `${r.root}/${f.rel_path}`,
     })),
   };
 }

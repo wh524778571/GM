@@ -384,6 +384,30 @@ def _truncate(text: str, limit: int = 300) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+def _unfence_backtick_values(text: str) -> str:
+    """把 `` `key`: `...` `` 这种反引号包裹的值还原成合法 JSON 字符串。
+
+    模型偶发把 core / 平台字段写成 markdown 代码块（值用 ``` 包住），
+    导致 json.loads 失败。只处理「冒号后紧跟反引号」的值，不碰正常双引号字符串，
+    避免误伤。值内的换行转义成 \\n，引号/反斜杠做 JSON 转义。
+    """
+    pattern = re.compile(r'("(?:[^"\\]|\\.)*")(\s*:\s*)`(.*?)`', re.DOTALL)
+
+    def repl(m: "re.Match[str]") -> str:
+        key = m.group(1)
+        inner = m.group(3)
+        inner = (
+            inner.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace("\n", "\\n")
+        )
+        return f'{key}: "{inner}"'
+
+    return pattern.sub(repl, text)
+
+
 def _parse_retry_after(headers: Iterable | None) -> float | None:
     if not headers:
         return None
@@ -404,21 +428,40 @@ def extract_json_object(raw: str) -> dict:
 
     复刻归档实现的容错（截取首个 `{` 到末个 `}`、剔除控制字符），
     但**解析失败时抛异常**而不是像旧代码那样兜底成一段假 Markdown。
+    额外加固：剥离 BOM/零宽字符、markdown 代码块、尾随逗号，
+    扛住 glm 偶发输出的不规范 JSON——仍不兜底成假数据。
     """
     if not raw or not raw.strip():
         raise AIResponseError("模型输出为空，无法解析 JSON")
 
     text = raw.strip()
+    # 去 BOM 与零宽字符（模型偶发会在 JSON 前后塞这些）
+    text = text.lstrip("\ufeff").strip()
+    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
+    # 剥离 markdown 代码块（处理前后可能的空白）
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
+        text = text.strip()
 
     start = text.find("{")
     end = text.rfind("}") + 1
     if start < 0 or end <= start:
         raise AIResponseError(f"模型输出中找不到 JSON 对象：{_truncate(text)}")
 
-    candidate = re.sub(r"[\x00-\x1f\x7f]", " ", text[start:end])
+    candidate = text[start:end]
+    # 剥离 markdown 代码块（处理前后可能的空白）
+    if candidate.startswith("```"):
+        candidate = re.sub(r"^```(?:json)?\s*", "", candidate)
+        candidate = re.sub(r"\s*```$", "", candidate)
+        candidate = candidate.strip()
+    # 反引号包裹的值（模型偶发把 core 等字段写成 ```...```）先还原成合法 JSON 字符串。
+    # 必须在「剔除控制字符」之前做，才能保留值内的换行（转义成 \n）。
+    candidate = _unfence_backtick_values(candidate)
+    # 剔除控制字符（含换行/制表符）：避免普通字符串值内裸换行破坏 JSON
+    candidate = re.sub(r"[\x00-\x1f\x7f]", " ", candidate)
+    # 剔除尾随逗号（标准 JSON 不允许 `{...},` 或 `[...],`）
+    candidate = re.sub(r",(\s*[}\]])", r"\1", candidate)
     try:
         data = json.loads(candidate)
     except json.JSONDecodeError as exc:

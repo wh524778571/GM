@@ -8,8 +8,11 @@ from fastapi import APIRouter
 
 from app.api.routers.analytics import router as analytics_router
 from app.api.routers.articles import router as articles_router
+from app.api.routers.files import router as files_router
+from app.api.routers.materials import router as materials_router
 from app.api.routers.publish import router as publish_router
 from app.api.routers.tracking import router as tracking_router
+from app.api.routers.topics import router as topics_router
 from app.api.routers.weekly import router as weekly_router
 
 ROUTERS: tuple[APIRouter, ...] = (
@@ -18,6 +21,9 @@ ROUTERS: tuple[APIRouter, ...] = (
     tracking_router,
     analytics_router,
     weekly_router,
+    materials_router,
+    files_router,
+    topics_router,
 )
 
 __all__ = ["ROUTERS"]

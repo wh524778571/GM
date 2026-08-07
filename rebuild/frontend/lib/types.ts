@@ -43,6 +43,8 @@ export interface MaterialItem {
   /** 用途 / 场景 */
   scene: string;
   episode?: string | null;
+  /** 缩略图地址（已改写为同源 /api/images/...）；无后端图片服务时为 null */
+  url?: string | null;
 }
 
 export interface TrendPoint {
@@ -61,6 +63,43 @@ export interface ProjectFile {
   kind: string;
   size: string;
   updatedAt: string;
+}
+
+/** 「项目文件」屏的富类型：携带后端真实信息（相对路径、可否删除、绝对路径用于复制）。 */
+export interface FileItem {
+  name: string;
+  relPath: string;
+  kind: string;
+  /** 字节数（用于排序/格式化） */
+  sizeBytes: number;
+  /** 已格式化的尺寸文案（后端已给，如 "1.2 MB"） */
+  size: string;
+  updatedAt: string;
+  /** 是否位于 uploads/ 下（仅此类可删） */
+  deletable: boolean;
+  /** 绝对路径，供「复制路径」使用 */
+  path: string;
+}
+
+/** AI 写作页：单条配图建议（来自后端 image_suggestions，前端镜像所需字段）。 */
+export interface ImageSuggestion {
+  /** 占位符原文，如「【配图1：沧元图_破境瞬间】」 */
+  placeholder: string;
+  index: number;
+  description: string;
+  /** 是否已在素材库命中 */
+  matched: boolean;
+  /** 命中时的素材地址（/images/... 形式，前端会改写成同源 /api/images/...） */
+  url?: string | null;
+}
+
+/** AI 写作页：一次生成的完整结果（前端镜像后端 result 字典）。 */
+export interface GenResult {
+  core?: string;
+  titles?: Record<string, string>;
+  contents?: Record<string, string>;
+  image_sources?: Record<string, string>;
+  image_suggestions?: ImageSuggestion[];
 }
 
 // ── 人工发布闭环（Phase 4 / Epic 4.1）────────────────────────

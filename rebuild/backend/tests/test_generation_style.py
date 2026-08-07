@@ -35,26 +35,75 @@ PLATFORMS = tuple(REGISTRY.keys())
 TOPIC = "《凡人修仙传》韩立破境这一集：五个细节二刷才发现"
 
 
+# 一段足够长的改写正文（含 2 个配图占位符，单段约 650 字）。
+# 母稿/平台正文目标已抬到 2000–3000 字；这里把 fixture 直接写到「达标」量级，
+# 使测试跳过扩写分支（生产环境草稿偏短时才会触发扩写），模型调用稳定为 5 次。
+_PLATFORM_PROSE = (
+    "这一集的分镜密度很高，几乎每个镜头都在推进信息，没有半点水时长，节奏卡得很准，导演显然知道哪段该慢哪段该快。"
+    "韩立破境不是突然开挂，而是前面几十集一点点铺垫的爆发，看得人头皮发麻，这种长线伏笔才是真良心，也是国漫越来越能打的底气。"
+    "元婴初成的那束光我反复看了三遍，光影层次和人物情绪都严丝合缝对上了，制作组在细节上真的没有偷懒，每一帧都能当壁纸。"
+    "从播放数据看这一集的完播率明显高于上一集，说明观众是用脚投票的，质量摆在那里骗不了人，弹幕里清一色的好评就是证明。"
+    "这一集还埋了不少呼应前作的彩蛋，一刷容易错过，二刷三刷才能品出味道，这也是它耐看、能反复刷的原因。"
+    "说到底一部番能不能长久，看的就是这种把观众当回事的态度，而这集恰恰做到了，没有用特效掩盖叙事的空洞。"
+    "角色动机始终在线，韩立的每一步都不是主角光环，而是代价换来的成长，这种真实感最戳人。"
+    "配乐也值得一提，破境那段的无词吟唱把情绪推到顶点，耳朵和眼睛一起被击中。"
+    "对比前几集，这一集在文戏和武戏的比例上拿捏得更好，不再为了燃而燃，该收的地方收得很干净。"
+    "整体看下来这是近期国漫里完成度很高的一集，推荐还没看的赶紧补，看完来评论区对暗号。"
+    "从制作层面看，这一集的作画张数明显比日常回更密集，关键动作戏用了大量中割和特效叠加，观感上的流畅不是凭空来的。"
+    "剧本也没有为了爽点牺牲逻辑，韩立每一步决策都有前情铺垫，观众追着追着就信了，这种信任感是长期连载最贵的东西。"
+    "再说说配音，破境那段的气声和爆发之间的切换处理得很细腻，情绪的层次被声音托住了，不是单纯喊出来。"
+    "美术上这一集的色调比前面更冷，暗示风暴将至，这种用画面讲故事的意识，比堆台词高级得多。"
+)
+
+_P1 = "【配图1：凡人修仙传_韩立破境场景】"
+_P2 = "【配图2：凡人修仙传_元婴特写】"
+
+
+def _platform_body(lead: str) -> str:
+    """≥2300 字的平台改写正文（超过 target*0.85，跳过扩写），含 2 个配图占位符。"""
+    return (
+        f"{lead}\n\n"
+        f"{_PLATFORM_PROSE}{_PLATFORM_PROSE}{_PLATFORM_PROSE}{_PLATFORM_PROSE}\n\n"
+        f"{_P1}\n\n"
+        "韩立破境那一刻，整部番的基调都变了，前面所有的隐忍都有了交代。\n\n"
+        f"{_P2}\n\n"
+        "元婴初成不是终点，而是更大风暴的起点，这集把悬念留得很高级。\n\n"
+        "评论区聊聊你二刷发现了几个细节？"
+    )
+
+
 def _fixture_payload() -> dict:
-    """模拟模型输出：故意给小红书塞了 2 个配图占位符，看服务是否强制剔除。"""
-    body = (
-        "## 开场钩子\n这一集我是真的坐直了，分镜、配乐、节奏全在线。\n\n"
-        "【配图1：凡人修仙传_韩立破境场景】\n\n"
-        "## 细节拆解\n**元婴初成**那段，画面里藏了三处呼应前作的伏笔。\n\n"
-        "【配图2：凡人修仙传_元婴特写】\n\n"
-        "## 我的看法\n这波制作组是真的下功夫了，你们二刷发现了吗？\n"
+    """模拟模型输出：新架构下 MockProvider 每次返回同一份 JSON。
+
+    fixture 已写到「达标」量级（core≥2000、平台≥target*0.85），因此扩写分支被跳过，
+    模型调用稳定为 5 次（母稿1 + 改写4）；生产环境草稿偏短时才会触发扩写补字。
+    """
+    core = (
+        "## 开场钩子\n"
+        f"{_PLATFORM_PROSE}{_PLATFORM_PROSE}{_PLATFORM_PROSE}\n\n"
+        f"{_P1}\n\n"
+        "## 细节拆解\n"
+        f"{_PLATFORM_PROSE}{_PLATFORM_PROSE}\n\n"
+        f"{_P2}\n\n"
+        "## 我的看法\n"
+        f"{_PLATFORM_PROSE}\n\n"
+        "元婴初成不是终点，而是更大风暴的起点，这集把悬念留得很高级，国漫现在能稳定产出这种水准，作为观众是幸福的。\n\n"
+        "你们二刷发现了吗？"
     )
     return {
-        "core": "核心解析：韩立破境这一集的分镜与伏笔梳理。",
-        "toutiao": body,
-        "baijia": body + "\n从播放数据看，这一集的完播率明显高于上一集。\n",
-        "bilibili": body + "\n所以问题来了：这波是燃还是水？评论区聊聊。\n",
+        "core": core,
+        "toutiao": _platform_body("朋友，这一集你真的不能错过，我是坐直了看完的"),
+        "baijia": _platform_body("从数据和成片质量双维度看，这一集值得拉出来细扒"),
+        "bilibili": _platform_body("所以问题来了：这波是燃还是水？我先抛出我的看法"),
         "xhs": (
-            "韩立破境这一集\n·\n真的坐直了\n·\n"
-            "【配图1：凡人修仙传_韩立破境场景】\n"
-            "分镜配乐节奏全在线\n·\n"
-            "【配图2：凡人修仙传_元婴特写】\n"
-            "你们二刷发现了吗\n"
+            "韩立突破元婴这一集\n·\n我是真的坐直了看完\n·\n"
+            f"{_P1}\n"
+            f"{_PLATFORM_PROSE}\n·\n"
+            f"{_P2}\n"
+            "元婴初成的那束光我反复看了三遍\n·\n"
+            "你们二刷发现了几个细节\n·\n"
+            "国漫现在能稳定产出这种水准，作为观众是真的幸福\n·\n"
+            "评论区聊聊你二刷发现了几个细节"
         ),
     }
 
@@ -71,11 +120,13 @@ def test_system_prompt_is_passed_verbatim():
     provider = _provider()
     GenerationService(provider).generate(TOPIC, render=False, match_images=False)
 
-    assert len(provider.received) == 1
+    # 新架构：母稿 1 次 + 逐平台改写 4 次 = 5 次模型调用
+    assert len(provider.received) == 5
+    # 每次调用的 system 都逐字等于 SYSTEM_PROMPT（人设不丢、不被覆盖）
+    for sent in provider.received:
+        assert sent["system"] == SYSTEM_PROMPT
+    # 首次调用（母稿）的 user prompt 走归档模板，主题被正确注入
     sent = provider.received[0]
-    # 逐字相等：没有被包装、拼接、截断或"润色"
-    assert sent["system"] == SYSTEM_PROMPT
-    # user prompt 走归档模板，主题被正确注入
     assert sent["user"] == build_user_prompt(TOPIC, "depth", "")
     assert TOPIC in sent["user"]
     assert "输出JSON" in PROMPTS_BASE["depth"]
@@ -102,7 +153,9 @@ def test_output_parses_into_four_platforms():
     assert tuple(result.contents.keys()) == PLATFORMS
     assert len(PLATFORMS) == 4
     assert all(result.contents[p].strip() for p in PLATFORMS)
-    assert result.core.startswith("核心解析")
+    # 新架构：core 是 ≥500 字的完整母稿，且含配图占位符
+    assert len(result.core) >= 500
+    assert "【配图" in result.core
 
 
 # ── 3. platforms.yaml 规则强制 ────────────────────────────────
@@ -169,20 +222,24 @@ def test_unparseable_output_raises():
     assert exc_info.value.stage == "parse"
 
 
-def test_missing_platform_raises():
+def test_missing_platform_falls_back_to_core():
+    """新架构：单平台改写失败不抛异常，兜底母稿并如实登记告警（绝不静默假成功）。"""
     payload = _fixture_payload()
     payload.pop("bilibili")
-    with pytest.raises(GenerationError) as exc_info:
-        GenerationService(_provider(payload)).generate(TOPIC, render=False)
-    assert exc_info.value.stage == "parse"
-    assert "bilibili" in str(exc_info.value)
+    result = GenerationService(_provider(payload)).generate(TOPIC, render=False, match_images=False)
+    # bilibili 改写缺失 → 兜底为母稿正文，不是空白、不是假文章
+    assert result.contents["bilibili"] == result.core
+    assert any("bilibili" in note for note in result.enforcements)
 
 
-def test_blank_platform_content_raises():
+def test_blank_platform_content_falls_back_to_core():
+    """新架构：平台字段为空白不抛异常，兜底母稿（小红书剔图后），并登记告警。"""
     payload = _fixture_payload()
     payload["xhs"] = "   "
-    with pytest.raises(GenerationError):
-        GenerationService(_provider(payload)).generate(TOPIC, render=False)
+    result = GenerationService(_provider(payload)).generate(TOPIC, render=False, match_images=False)
+    # xhs 改写空白 → 兜底母稿（剔图后），内容非空
+    assert result.contents["xhs"].strip()
+    assert any("xhs" in note for note in result.enforcements)
 
 
 @pytest.mark.parametrize("article_type", ["weitoutiao", "unknown"])

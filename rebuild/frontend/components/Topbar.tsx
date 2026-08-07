@@ -1,12 +1,17 @@
+"use client";
+
+import { useState } from "react";
 import { Button } from "./Button";
 import { BackendStatus } from "./BackendStatus";
 
-/** 统一外壳顶栏：页面标题 + 搜索框 + 新建主按钮。 */
+/** 统一外壳顶栏：页面标题 + 搜索框 + 新建主按钮。交互通过回调上抛。 */
 export interface TopbarProps {
   title: string;
   subtitle?: string;
   searchPlaceholder?: string;
   actionLabel?: string;
+  onAction?: () => void;
+  onSearch?: (q: string) => void;
 }
 
 export function Topbar({
@@ -14,7 +19,10 @@ export function Topbar({
   subtitle,
   searchPlaceholder = "搜索文章 / 素材…",
   actionLabel = "新建文章",
+  onAction,
+  onSearch,
 }: TopbarProps) {
+  const [q, setQ] = useState("");
   return (
     <header className="border-b border-subtle bg-root px-6">
       <div className="mx-auto flex h-16 w-full max-w-content items-center gap-4">
@@ -31,11 +39,16 @@ export function Topbar({
         <input
           id="topbar-search"
           type="search"
+          value={q}
           placeholder={searchPlaceholder}
+          onChange={(e) => {
+            setQ(e.target.value);
+            onSearch?.(e.target.value);
+          }}
           className="h-9 w-56 rounded-btn border border-subtle bg-card px-3 text-[13px] text-primary placeholder:text-tertiary focus:border-accent focus:outline-none"
         />
 
-        <Button>{actionLabel}</Button>
+        <Button onClick={onAction}>{actionLabel}</Button>
       </div>
     </header>
   );

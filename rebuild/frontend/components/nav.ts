@@ -7,6 +7,7 @@ import {
   IconFolder,
   IconImage,
   IconPen,
+  IconSpark,
   type IconProps,
 } from "./icons";
 
@@ -19,7 +20,8 @@ export interface NavEntry {
 
 export const NAV_ITEMS: NavEntry[] = [
   { href: "/", label: "工作台", icon: IconDashboard },
-  { href: "/writer", label: "AI 写作", icon: IconPen },
+  { href: "/writer", label: "文章编辑", icon: IconPen },
+  { href: "/topics", label: "今日选题", icon: IconSpark },
   { href: "/articles", label: "文章管理", icon: IconDoc },
   { href: "/weekly", label: "周计划", icon: IconCalendar },
   { href: "/analytics", label: "数据看板", icon: IconChart },
