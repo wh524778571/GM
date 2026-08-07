@@ -188,6 +188,38 @@ export function ArticleEditorScreen() {
     }
   }
 
+  /** 去 AI 味：调后端 /polish，把当前正文按 humanizer-zh 规则润色后回写。 */
+  async function humanize() {
+    setBusy(true);
+    setErr("");
+    try {
+      let id = articleId;
+      if (!id) {
+        // 尚未落库：先存一篇草稿拿到 id，再润色
+        const a = await apiPost<ArticleOut>("/articles", {
+          article_id: `edit-${Date.now()}`,
+          title: title.trim() || "未命名文章",
+          content_text: body,
+          image_sources: imgMap,
+          status: "draft",
+        });
+        id = a.article_id;
+        setArticleId(id);
+      }
+      const res = await apiPost<{
+        polished: string;
+        before_chars: number;
+        after_chars: number;
+      }>(`/articles/${id}/polish`, { text: body, persist: true });
+      setBody(res.polished);
+      setOkMsg(`已去AI味：${res.before_chars} → ${res.after_chars} 字`);
+    } catch (e) {
+      setErr((e as ApiError).message || "去AI味失败，请稍后重试");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copyText() {
     try {
       await navigator.clipboard.writeText(body);
@@ -286,6 +318,9 @@ export function ArticleEditorScreen() {
         </ButtonSecondary>
         <ButtonSecondary className="h-9" onClick={insertImage}>
           插入图片
+        </ButtonSecondary>
+        <ButtonSecondary className="h-9" onClick={humanize} disabled={busy}>
+          去AI味
         </ButtonSecondary>
         <span className="ml-auto text-xs text-tertiary">
           {body.length} 字 · {Object.keys(imgMap).length} 张图已绑
