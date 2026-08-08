@@ -171,6 +171,18 @@ class BatchDeleteResponse(BaseModel):
     not_found: list[str]
 
 
+class BatchRestoreRequest(BaseModel):
+    """回收站批量恢复（置为 draft）。"""
+
+    ids: list[str] = Field(..., min_length=1, description="article_id 列表")
+
+
+class BatchRestoreResponse(BaseModel):
+    requested: int
+    restored: int
+    not_found: list[str]
+
+
 # ── 生成 ─────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
     topic: str = Field(..., min_length=1, description="选题（主题句）")

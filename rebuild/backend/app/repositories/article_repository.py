@@ -64,3 +64,16 @@ class ArticleRepository(BaseRepository[Article]):
         self.session.flush()
         not_found = [i for i in ids if i not in found_ids]
         return len(rows), not_found
+
+    def soft_restore_many(self, ids: list[str]) -> tuple[int, list[str]]:
+        """回收站批量恢复（置为 draft）。返回 (已恢复数量, 不存在的 id 列表)。"""
+        if not ids:
+            return 0, []
+        stmt = select(Article).where(Article.article_id.in_(ids))
+        rows = list(self.session.scalars(stmt))
+        found_ids = {a.article_id for a in rows}
+        for a in rows:
+            a.status = ArticleStatus.DRAFT.value
+        self.session.flush()
+        not_found = [i for i in ids if i not in found_ids]
+        return len(rows), not_found

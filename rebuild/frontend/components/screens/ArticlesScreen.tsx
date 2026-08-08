@@ -169,6 +169,27 @@ export function ArticlesScreen({
     }
   }
 
+  async function onBatchRestore() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!window.confirm(`确认恢复选中的 ${ids.length} 篇文章到草稿？（从回收站取出）`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPost<{ requested: number; restored: number; not_found: string[] }>(
+        "/articles/batch-restore",
+        { ids },
+      );
+      clearArticleSelection();
+      setOk(`已恢复 ${res.restored} 篇到草稿`);
+      await refresh(active === "all" ? undefined : active);
+    } catch (e) {
+      setError((e as ApiError).message || "批量恢复失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function exportCsv() {
     const header = ["状态", "标题", "作品", "平台", "阅读量", "日期"];
     const lines = rows.map((r) =>
@@ -247,6 +268,23 @@ export function ArticlesScreen({
                 className="h-9 rounded-btn border border-accent bg-accent px-4 text-[13px] font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
               >
                 批量删除
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {selected.size > 0 && active === "deleted" ? (
+          <div className="mt-4 flex items-center justify-between rounded-row border border-success/40 bg-success/10 px-4 py-3">
+            <span className="text-[13px] text-success">已选 {selected.size} 篇（回收站）</span>
+            <div className="flex items-center gap-2">
+              <ButtonSecondary onClick={clearArticleSelection}>取消</ButtonSecondary>
+              <button
+                type="button"
+                onClick={onBatchRestore}
+                disabled={busy}
+                className="h-9 rounded-btn border border-success bg-success px-4 text-[13px] font-medium text-white transition-colors hover:bg-success/90 disabled:opacity-50"
+              >
+                批量恢复
               </button>
             </div>
           </div>

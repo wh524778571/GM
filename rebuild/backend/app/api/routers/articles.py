@@ -19,6 +19,8 @@ from app.api.schemas import (
     ArticleUpdate,
     BatchDeleteRequest,
     BatchDeleteResponse,
+    BatchRestoreRequest,
+    BatchRestoreResponse,
     ExportResponse,
     GenerateRequest,
     GenerateResponse,
@@ -142,6 +144,18 @@ def batch_delete_articles(
     deleted, not_found = repo.soft_delete_many(payload.ids)
     return BatchDeleteResponse(
         requested=len(payload.ids), deleted=deleted, not_found=not_found
+    )
+
+
+# ── 回收站批量恢复（deleted → draft）────────────────────────────
+@router.post("/articles/batch-restore", response_model=BatchRestoreResponse)
+def batch_restore_articles(
+    payload: BatchRestoreRequest, session: Session = Depends(get_session)
+) -> BatchRestoreResponse:
+    repo = ArticleRepository(session)
+    restored, not_found = repo.soft_restore_many(payload.ids)
+    return BatchRestoreResponse(
+        requested=len(payload.ids), restored=restored, not_found=not_found
     )
 
 
