@@ -14,6 +14,7 @@ import type { ArticleRow } from "@/lib/types";
  * 行可点击进详情；可触发删除。
  */
 export const TABLE_COLS = {
+  select: "w-9 shrink-0",
   status: "w-[76px] shrink-0",
   title: "min-w-0 flex-1",
   platform: "w-[96px] shrink-0",
@@ -22,9 +23,28 @@ export const TABLE_COLS = {
   action: "w-[104px] shrink-0 text-right",
 } as const;
 
-export function TableHeader() {
+export function TableHeader({
+  selectCol = false,
+  allSelected = false,
+  onToggleAll,
+}: {
+  selectCol?: boolean;
+  allSelected?: boolean;
+  onToggleAll?: () => void;
+}) {
   return (
     <div className="flex h-9 w-full items-center gap-4 px-4 text-xs text-tertiary">
+      {selectCol ? (
+        <span className={TABLE_COLS.select}>
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={onToggleAll}
+            className="h-4 w-4 cursor-pointer accent-accent"
+            aria-label="全选"
+          />
+        </span>
+      ) : null}
       <span className={TABLE_COLS.status}>状态</span>
       <span className={TABLE_COLS.title}>标题</span>
       <span className={TABLE_COLS.platform}>平台</span>
@@ -39,10 +59,14 @@ export function TableRow({
   row,
   onRowClick,
   onDelete,
+  selected = false,
+  onToggleSelect,
 }: {
   row: ArticleRow;
   onRowClick?: () => void;
   onDelete?: () => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const platform = PLATFORMS[row.platform];
 
@@ -53,6 +77,19 @@ export function TableRow({
         onRowClick ? "cursor-pointer" : ""
       }`}
     >
+      {onToggleSelect ? (
+        <div className={TABLE_COLS.select}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onClick={(e) => e.stopPropagation()}
+            onChange={onToggleSelect}
+            className="h-4 w-4 cursor-pointer accent-accent"
+            aria-label={selected ? "取消选择" : "选择该文章"}
+          />
+        </div>
+      ) : null}
+
       <div className={TABLE_COLS.status}>
         <StatusPill status={row.status} />
       </div>

@@ -17,6 +17,8 @@ from app.api.schemas import (
     ArticleListResponse,
     ArticleOut,
     ArticleUpdate,
+    BatchDeleteRequest,
+    BatchDeleteResponse,
     ExportResponse,
     GenerateRequest,
     GenerateResponse,
@@ -129,6 +131,18 @@ def update_article(
         setattr(article, key, value)
     session.flush()
     return _to_out(article)
+
+
+# ── 批量删除（软删，可恢复）────────────────────────────────────
+@router.post("/articles/batch-delete", response_model=BatchDeleteResponse)
+def batch_delete_articles(
+    payload: BatchDeleteRequest, session: Session = Depends(get_session)
+) -> BatchDeleteResponse:
+    repo = ArticleRepository(session)
+    deleted, not_found = repo.soft_delete_many(payload.ids)
+    return BatchDeleteResponse(
+        requested=len(payload.ids), deleted=deleted, not_found=not_found
+    )
 
 
 # ── 生成（闭环入口）───────────────────────────────────────────

@@ -8,7 +8,7 @@ import { TableHeader, TableRow } from "@/components/TableRow";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { DataSourceNote } from "@/components/DataSourceNote";
 import { PLATFORMS } from "@/lib/platforms";
-import { apiGet, apiPatch, ApiError } from "@/lib/clientApi";
+import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/clientApi";
 import type { ArticleRow, ArticleStatus } from "@/lib/types";
 
 const FILTERS = [
@@ -64,6 +64,19 @@ export function ArticlesScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
 
   const visible = (() => {
     const q = query.trim().toLowerCase();
@@ -72,6 +85,13 @@ export function ArticlesScreen({
       (r) => r.title.toLowerCase().includes(q) || r.work.toLowerCase().includes(q),
     );
   })();
+
+  const visibleIds = visible.map((r) => r.articleId);
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+
+  function toggleSelectAll() {
+    setSelected(allSelected ? new Set() : new Set(visibleIds));
+  }
 
   const countFor = (key: FilterKey) =>
     key === "all"
@@ -107,6 +127,27 @@ export function ArticlesScreen({
       await refresh(active === "all" ? undefined : active);
     } catch (e) {
       setError((e as ApiError).message || "删除失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onBatchDelete() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (!window.confirm(`确认删除选中的 ${ids.length} 篇文章？（软删，可恢复）`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPost<{ requested: number; deleted: number; not_found: string[] }>(
+        "/articles/batch-delete",
+        { ids },
+      );
+      clearSelection();
+      setOk(`已删除 ${res.deleted} 篇`);
+      await refresh(active === "all" ? undefined : active);
+    } catch (e) {
+      setError((e as ApiError).message || "批量删除失败");
     } finally {
       setBusy(false);
     }
@@ -152,12 +193,18 @@ export function ArticlesScreen({
           ))}
         </div>
 
-        <TableHeader />
+        <TableHeader
+          selectCol
+          allSelected={allSelected}
+          onToggleAll={toggleSelectAll}
+        />
         <div className="flex flex-col gap-2">
           {visible.map((row) => (
             <TableRow
               key={row.articleId}
               row={row}
+              selected={selected.has(row.articleId)}
+              onToggleSelect={() => toggleSelect(row.articleId)}
               onRowClick={() => router.push(`/articles/${row.articleId}`)}
               onDelete={() => onDelete(row.articleId)}
             />
@@ -166,6 +213,23 @@ export function ArticlesScreen({
             <p className="py-8 text-center text-[13px] text-tertiary">没有匹配的文章</p>
           ) : null}
         </div>
+
+        {selected.size > 0 ? (
+          <div className="mt-4 flex items-center justify-between rounded-row border border-accent/40 bg-accent-bg px-4 py-3">
+            <span className="text-[13px] text-accent">已选 {selected.size} 篇</span>
+            <div className="flex items-center gap-2">
+              <ButtonSecondary onClick={clearSelection}>取消</ButtonSecondary>
+              <button
+                type="button"
+                onClick={onBatchDelete}
+                disabled={busy}
+                className="h-9 rounded-btn border border-accent bg-accent px-4 text-[13px] font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+              >
+                批量删除
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {error ? <p className="mt-3 text-[13px] text-plat-toutiao">{error}</p> : null}
         {ok ? <p className="mt-3 text-[13px] text-success">{ok}</p> : null}

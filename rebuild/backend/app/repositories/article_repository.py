@@ -51,3 +51,16 @@ class ArticleRepository(BaseRepository[Article]):
 
         stmt = select(Article.status, func.count()).group_by(Article.status)
         return {status: int(n) for status, n in self.session.execute(stmt)}
+
+    def soft_delete_many(self, ids: list[str]) -> tuple[int, list[str]]:
+        """批量软删（置为 deleted）。返回 (已删数量, 不存在的 id 列表)。"""
+        if not ids:
+            return 0, []
+        stmt = select(Article).where(Article.article_id.in_(ids))
+        rows = list(self.session.scalars(stmt))
+        found_ids = {a.article_id for a in rows}
+        for a in rows:
+            a.status = ArticleStatus.DELETED.value
+        self.session.flush()
+        not_found = [i for i in ids if i not in found_ids]
+        return len(rows), not_found

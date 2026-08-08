@@ -159,6 +159,18 @@ class ImageBindResponse(BaseModel):
     matched: bool = True
 
 
+class BatchDeleteRequest(BaseModel):
+    """多选删除文章（软删：置为 deleted，可恢复）。"""
+
+    ids: list[str] = Field(..., min_length=1, description="article_id 列表")
+
+
+class BatchDeleteResponse(BaseModel):
+    requested: int
+    deleted: int
+    not_found: list[str]
+
+
 # ── 生成 ─────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
     topic: str = Field(..., min_length=1, description="选题（主题句）")
