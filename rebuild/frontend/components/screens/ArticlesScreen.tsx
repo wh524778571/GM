@@ -24,6 +24,7 @@ const FILTERS = [
   { key: "pending", label: "待发布" },
   { key: "published", label: "已发布" },
   { key: "failed", label: "失败" },
+  { key: "deleted", label: "回收站" },
 ] as const;
 
 type FilterKey = (typeof FILTERS)[number]["key"];
@@ -91,7 +92,9 @@ export function ArticlesScreen({
 
   const countFor = (key: FilterKey) =>
     key === "all"
-      ? Object.values(counts).reduce((a, b) => a + b, 0)
+      ? Object.entries(counts)
+          .filter(([k]) => k !== "deleted")
+          .reduce((a, [, b]) => a + b, 0)
       : counts[key] ?? 0;
 
   async function refresh(status?: string) {
@@ -124,6 +127,22 @@ export function ArticlesScreen({
       await refresh(active === "all" ? undefined : active);
     } catch (e) {
       setError((e as ApiError).message || "删除失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRestore(id: string) {
+    if (!window.confirm("恢复该文章到草稿？（从回收站取出）")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPatch(`/articles/${id}`, { status: "draft" });
+      removeArticleSelection([id]);
+      setOk("已恢复到草稿");
+      await refresh(active === "all" ? undefined : active);
+    } catch (e) {
+      setError((e as ApiError).message || "恢复失败");
     } finally {
       setBusy(false);
     }
@@ -202,16 +221,21 @@ export function ArticlesScreen({
               row={row}
               selected={selected.has(row.articleId)}
               onToggleSelect={() => toggleArticleSelection(row.articleId)}
-              onRowClick={() => router.push(`/articles/${row.articleId}`)}
-              onDelete={() => onDelete(row.articleId)}
+              onRowClick={
+                active === "deleted" ? undefined : () => router.push(`/articles/${row.articleId}`)
+              }
+              onDelete={active === "deleted" ? undefined : () => onDelete(row.articleId)}
+              onRestore={active === "deleted" ? () => onRestore(row.articleId) : undefined}
             />
           ))}
           {visible.length === 0 ? (
-            <p className="py-8 text-center text-[13px] text-tertiary">没有匹配的文章</p>
+            <p className="py-8 text-center text-[13px] text-tertiary">
+              {active === "deleted" ? "回收站是空的" : "没有匹配的文章"}
+            </p>
           ) : null}
         </div>
 
-        {selected.size > 0 ? (
+        {selected.size > 0 && active !== "deleted" ? (
           <div className="mt-4 flex items-center justify-between rounded-row border border-accent/40 bg-accent-bg px-4 py-3">
             <span className="text-[13px] text-accent">已选 {selected.size} 篇</span>
             <div className="flex items-center gap-2">

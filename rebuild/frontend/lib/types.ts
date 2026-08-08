@@ -2,7 +2,7 @@
 
 export type PlatformKey = "toutiao" | "baijia" | "bilibili" | "xhs";
 
-export type ArticleStatus = "published" | "pending" | "draft" | "failed";
+export type ArticleStatus = "published" | "pending" | "draft" | "failed" | "deleted";
 
 export interface ArticleRow {
   /** 业务唯一键 articles.article_id */

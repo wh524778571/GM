@@ -9,6 +9,7 @@ const STATUS: Record<ArticleStatus, { label: string; className: string }> = {
   pending: { label: "待发布", className: "border-warning/40 bg-warning/10 text-warning" },
   draft: { label: "草稿", className: "border-subtle bg-raised text-tertiary" },
   failed: { label: "失败", className: "border-plat-toutiao/40 bg-plat-toutiao/10 text-plat-toutiao" },
+  deleted: { label: "已删除", className: "border-subtle bg-raised text-tertiary line-through opacity-70" },
 };
 
 export function StatusPill({ status }: { status: ArticleStatus }) {

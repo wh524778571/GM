@@ -59,12 +59,14 @@ export function TableRow({
   row,
   onRowClick,
   onDelete,
+  onRestore,
   selected = false,
   onToggleSelect,
 }: {
   row: ArticleRow;
   onRowClick?: () => void;
   onDelete?: () => void;
+  onRestore?: () => void;
   selected?: boolean;
   onToggleSelect?: () => void;
 }) {
@@ -112,7 +114,19 @@ export function TableRow({
 
       <div className={`${TABLE_COLS.action} flex justify-end`}>
         <div className="flex items-center justify-end gap-1.5">
-          {onDelete ? (
+          {onRestore ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRestore();
+              }}
+              className="h-7 rounded-btn border border-subtle px-2 text-xs text-tertiary transition-colors hover:border-success/50 hover:text-success"
+              title="恢复到草稿"
+            >
+              恢复
+            </button>
+          ) : onDelete ? (
             <button
               type="button"
               onClick={(e) => {
@@ -125,11 +139,13 @@ export function TableRow({
               删
             </button>
           ) : null}
-          <PublishButton
-            articleId={row.articleId}
-            articleTitle={row.title}
-            className="h-7 px-2.5 text-xs"
-          />
+          {!onRestore ? (
+            <PublishButton
+              articleId={row.articleId}
+              articleTitle={row.title}
+              className="h-7 px-2.5 text-xs"
+            />
+          ) : null}
         </div>
       </div>
     </div>

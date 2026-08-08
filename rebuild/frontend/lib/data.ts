@@ -85,6 +85,7 @@ const STATUS_MAP: Record<string, ArticleStatus> = {
   pending: "pending",
   draft: "draft",
   failed: "failed",
+  deleted: "deleted",
 };
 
 function toStatus(raw: string): ArticleStatus {
@@ -100,7 +101,9 @@ function firstKey(obj: Record<string, unknown> | null | undefined): string | und
 // ── 文章 ──────────────────────────────────────────────────────
 export async function getArticles(): Promise<Sourced<ArticleRow[]>> {
   const list = await backendGet<ArticleListResponse>("/articles?limit=50");
-  if (!list || !Array.isArray(list.items) || list.items.length === 0) {
+  // 仅当后端不可达（list 为 null）时回落示例数据；
+  // 后端可达但返回 0 篇（全是软删除）时，如实显示空列表，绝不用示例数据掩盖真实状态。
+  if (!list || !Array.isArray(list.items)) {
     return { source: "seed", data: SEED_ARTICLES };
   }
 
