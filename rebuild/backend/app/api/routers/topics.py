@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date as date_type
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -35,6 +35,18 @@ router = APIRouter(tags=["topics"])
 
 class TopicBlacklistRequest(BaseModel):
     blacklisted: bool = True
+
+
+class TopicImportRequest(BaseModel):
+    """从外部源（选题扫描等）导入一个选题到今日选题库。"""
+
+    title: str = Field(..., min_length=1, description="选题标题")
+    summary: str = ""
+    angle: str = ""
+    topic_type: str = "常青候选"
+    article_type: str = "depth"
+    viral_genes: list[str] = []
+    viral_why: str = ""
 
 
 def _today() -> str:
@@ -93,6 +105,19 @@ def topics_generate(session: Session = Depends(get_session)) -> TopicGenerateRes
         items=[_to_out(t, today) for t in result["items"]],
         generated=result["generated"],
     )
+
+
+@router.post("/topics/import", response_model=TopicOut)
+def topic_import(
+    payload: TopicImportRequest, session: Session = Depends(get_session)
+) -> TopicOut:
+    """外部选题（如周一扫描的本周 3 选题）导入今日选题库，使今日选题页可见。"""
+    today = _today()
+    try:
+        obj = topic_service.import_topic(today, payload.model_dump(), session)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return _to_out(obj, today)
 
 
 @router.post("/topics/{topic_id}/blacklist", response_model=TopicBlacklistResponse)

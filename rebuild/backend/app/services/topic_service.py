@@ -160,3 +160,61 @@ def write_topic_article(topic_id: int, session: Session) -> dict:
         "titles": result.titles,
         "qa": result.qa_report.to_dict(),
     }
+
+
+def import_topic(today: str, data: dict, session: Session) -> TopicRecommendation:
+    """从外部源（如选题热点扫描）导入一个选题到今日选题库。
+
+    幂等：同 topic_key 只刷新日期 + 累计 recommend_count，不重复建行。
+    入库文本统一剥离书名号《》并中和编造数字，与 generate_topics 保持一致。
+    """
+    raw_title = re.sub(r"[《》]", "", (data.get("title") or "")).strip()
+    if not raw_title:
+        raise ValueError("title 不能为空")
+    key = _norm_key(raw_title)
+    repo = TopicRepository(session)
+
+    genes = data.get("viral_genes") or []
+    if not isinstance(genes, list):
+        genes = []
+    genes_json = json.dumps(genes, ensure_ascii=False)
+
+    def clean(v: str) -> str:
+        return re.sub(r"[《》]", "", (v or "")).strip()
+
+    existing = repo.get_by_key(key)
+    if existing is None:
+        obj = TopicRecommendation(
+            topic_key=key,
+            date=today,
+            title=_neutralize_numbers(raw_title),
+            topic_type=data.get("topic_type") or "常青候选",
+            summary=_neutralize_numbers(clean(data.get("summary"))),
+            angle=_neutralize_numbers(clean(data.get("angle"))),
+            article_type=data.get("article_type") or "depth",
+            viral_genes=genes_json,
+            viral_why=_neutralize_numbers(clean(data.get("viral_why"))),
+            blacklisted=False,
+            recommend_count=1,
+        )
+        repo.add(obj)
+        return obj
+
+    # 已存在：刷新到今日、累计计数、补全信息
+    existing.date = today
+    existing.recommend_count = (existing.recommend_count or 0) + 1
+    existing.title = _neutralize_numbers(raw_title)
+    if data.get("summary"):
+        existing.summary = _neutralize_numbers(clean(data["summary"]))
+    if data.get("angle"):
+        existing.angle = _neutralize_numbers(clean(data["angle"]))
+    if data.get("viral_why"):
+        existing.viral_why = _neutralize_numbers(clean(data["viral_why"]))
+    if genes:
+        existing.viral_genes = genes_json
+    if data.get("topic_type"):
+        existing.topic_type = data["topic_type"]
+    if data.get("article_type"):
+        existing.article_type = data["article_type"]
+    session.flush()
+    return existing
