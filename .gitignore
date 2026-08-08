@@ -26,3 +26,12 @@ phase0-archive.sh
 # 本地产物
 rebuild/backend/uploads/
 rebuild/frontend/public/uploads/
+
+# 本地密钥（绝不提交）
+.env
+.env.*
+!.env.example
+
+# 四平台分发 CLI 的本地产物
+分发输出/
+dist/
