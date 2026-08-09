@@ -49,17 +49,31 @@ Yolo 的国漫自媒体内容工作台：把「选题雷达 → 写稿 → 去 A
   ```
 - 仅调试时手动启动：`cd rebuild/frontend && npm run dev`
 
-### 后端（手动启动）
+### 后端（建议用 launchd 托管，开机自启、崩溃自动拉起）
 
-```bash
-cd rebuild/backend
-/Users/wuhao/.workbuddy/binaries/python/envs/default/bin/python3 -m uvicorn app.main:app \
-  --host 127.0.0.1 --port 8000 --reload
-```
+> **单进程启动，禁止 `--reload`**：`--reload` 会 fork 子进程，父进程（reloader）一旦被回收
+> 就留下用旧代码的「僵尸后端」，表现为「某端点 500 但代码/TestClient 正常」。务必单进程启动。
 
-- 健康检查：`curl http://localhost:8000/health`
+- 真实机器上托管的 plist 已生成：`~/Library/LaunchAgents/com.guoman.backend.dev.plist`
+  （`KeepAlive=true` + `RunAtLoad`，单进程 uvicorn，日志 `rebuild/backend/.backend-dev.log`）：
+  ```bash
+  launchctl load ~/Library/LaunchAgents/com.guoman.backend.dev.plist   # 仅真机有效
+  ```
+- 手动启动（本会话 / 未托管时）：
+  ```bash
+  cd rebuild/backend
+  /Users/wuhao/.workbuddy/binaries/python/envs/default/bin/python3 -m uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000            # 注意：单进程，不加 --reload
+  ```
+
+- 健康检查：`curl --noproxy 127.0.0.1 http://127.0.0.1:8000/health`
+  （**用 `127.0.0.1` 而非 `localhost`**：后者在本机常解析 IPv6，会直连返回 000）
 - 前端代理目标在 `rebuild/frontend/lib/backend.ts` 默认 `http://localhost:8000`，
   可用环境变量 `BACKEND_BASE_URL` 覆盖。
+
+> ⚠️ **WorkBuddy 沙箱说明**：本 agent 环境里 `launchctl` 管不了用户 agent（加载报
+> `Input/output error`，连前端实际也未真被 launchd 托管）。沙箱内后端用后台任务保活；
+> 回到真机 `launchctl load` 一次即永久托管。
 
 ---
 
@@ -101,11 +115,13 @@ cd rebuild/backend
 ## 运维铁律（速查）
 
 1. **验证前端编译绝不破坏运行中的 dev**：用 `typecheck` 或隔离 `NEXT_DIST_DIR` 构建，绝不跑普通 `npm run build`。
-2. **dev 由 launchd 托管**：异常删 `.next` 让其自动恢复，不手动 `npm run dev`。
-3. **git push 绕开 WorkBuddy 透明代理**：`env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy git push origin main`；代码只本地 commit，push 需用户明确许可。
-4. **跨路由需保留的状态用 module 级 store**（`lib/articleSelection.ts`），别放组件 `useState`。
-5. **软删除必带「回收站」出口**（FILTERS 加 deleted + 批量恢复）；种子数据只兜底后端不可达，不掩盖真实空列表。
-6. **装新 skill 前先安全审计**，绝不在审计前执行被审查代码。
+2. **前端 dev 由 launchd 托管**：异常删 `.next` 让其自动恢复，不手动 `npm run dev` 抢 3000 端口。
+3. **后端单进程启动，禁用 `--reload`**：`--reload` 的 fork 子进程在父进程被回收后会变「僵尸后端」（旧代码），表现成「端点 500 但代码正常」。真机用 `com.guoman.backend.dev.plist` 托管；沙箱/未托管时手动单进程 `uvicorn app.main:app --host 127.0.0.1 --port 8000`。
+4. **git push 绕开 WorkBuddy 透明代理**：`env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy git push origin main`；代码只本地 commit，push 需用户明确许可。
+5. **跨路由需保留的状态用 module 级 store**（`lib/articleSelection.ts`），别放组件 `useState`。
+6. **软删除必带「回收站」出口**（FILTERS 加 deleted + 批量恢复）；种子数据只兜底后端不可达，不掩盖真实空列表。
+7. **装新 skill 前先安全审计**，绝不在审计前执行被审查代码。
+8. **连后端用 `127.0.0.1` 而非 `localhost`**：后者常解析 IPv6，直连返回 000；curl 加 `--noproxy 127.0.0.1`。
 
 ---
 
