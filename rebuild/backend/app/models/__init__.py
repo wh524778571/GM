@@ -5,7 +5,6 @@ from app.models.material import Material, MaterialSource
 from app.models.publish_record import PublishRecord, PublishState
 from app.models.topic_recommendation import TopicRecommendation
 from app.models.tracking import Tracking
-from app.models.weekly_plan import WeeklyPlanTask, WeeklyTaskStatus
 
 __all__ = [
     "Article",
@@ -16,6 +15,4 @@ __all__ = [
     "PublishState",
     "TopicRecommendation",
     "Tracking",
-    "WeeklyPlanTask",
-    "WeeklyTaskStatus",
 ]

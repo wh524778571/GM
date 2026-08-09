@@ -271,46 +271,6 @@ class TrackingListResponse(BaseModel):
     items: list[TrackingOut]
 
 
-# ── 周计划 ───────────────────────────────────────────────────
-class WeeklyTaskIn(BaseModel):
-    week_start: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="周一日期")
-    weekday: int = Field(..., ge=0, le=6, description="0=周一 … 6=周日")
-    title: str = Field(..., min_length=1, max_length=200)
-    article_id: str | None = None
-    platform: str | None = None
-    status: str = Field("planned", description="planned/doing/done/skipped")
-    note: str | None = None
-
-
-class WeeklyTaskUpdate(BaseModel):
-    week_start: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
-    weekday: int | None = Field(None, ge=0, le=6)
-    title: str | None = Field(None, min_length=1, max_length=200)
-    article_id: str | None = None
-    platform: str | None = None
-    status: str | None = None
-    note: str | None = None
-
-
-class WeeklyTaskOut(BaseModel):
-    id: int
-    week_start: str
-    weekday: int
-    title: str
-    article_id: str | None = None
-    platform: str | None = None
-    status: str
-    note: str | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class WeeklyPlanResponse(BaseModel):
-    week_start: str | None
-    returned: int
-    items: list[WeeklyTaskOut]
-
-
 # ══════════════════════════════════════════════════════════════
 # Phase 4 —— 人工发布闭环（Epic 4.1 / M4）
 #

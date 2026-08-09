@@ -33,12 +33,12 @@ rebuild/
 │   │   ├── main.py               # FastAPI 入口（Phase 2 路由集中挂载）
 │   │   ├── api/
 │   │   │   ├── schemas.py        # 出入参模型（Pydantic）
-│   │   │   └── routers/          # articles / tracking / analytics / weekly / publish
+│   │   │   └── routers/          # articles / tracking / analytics / publish
 │   │   ├── core/
 │   │   │   ├── settings.py       # 全项目唯一声明 DATABASE_URL / 读密钥的地方
 │   │   │   └── platform_rules.py # platforms.yaml 加载器
 │   │   ├── db/base.py            # Engine / Session / session_scope
-│   │   ├── models/               # article / tracking / material / weekly_plan / publish_record
+│   │   ├── models/               # article / tracking / material / publish_record
 │   │   ├── repositories/         # Repository 模式，禁止裸 sqlite3.connect
 │   │   └── services/
 │   │       ├── ai/               # ★ Phase 2 AI 层
@@ -83,7 +83,7 @@ python -m venv .venv && source .venv/bin/activate   # 可选：隔离依赖
 pip install -r requirements.txt
 
 cp .env.example .env          # 按需填 ZHIPU_API_KEY（不填也能起，仅 /generate 会明确报错）
-alembic upgrade head          # 建表：articles / tracking / materials / weekly_plan
+alembic upgrade head          # 建表：articles / tracking / materials
 # 可选：导入 825 条归档素材（首跑后才会有素材数据）
 python scripts/index_archive_materials.py
 uvicorn app.main:app --reload --port 8000
@@ -157,8 +157,6 @@ Phase 2：
 | GET/POST | `/tracking` | 发布后数据查询 / 录入（按 date+article+platform upsert） |
 | GET | `/analytics` | KPI 看板（文章数/阅读/互动/涨粉代理/收益） |
 | GET | `/analytics/summary` | 汇总（平台维度 + 文章 TOP + 按日趋势） |
-| GET/POST | `/weekly-plan` | 周计划列表 / 新建 |
-| PATCH | `/weekly-plan/{task_id}` | 更新周计划任务 |
 
 生成失败的语义是明确的：AI 未配置 `503`｜AI 限流或调用失败 `502`（带 attempts/retryable）｜
 模型输出解析失败或缺平台 `422`｜`strict=true` 且质检不过 `422`（带完整 issues）。
@@ -244,10 +242,7 @@ M2 最大的风险是生成时没继承人设，写出另一个号的味道。�
    从选题派生各平台标题，超限一律截断并在 `enforcements` 中如实登记
    「建议人工改写」——不臆造标题、不静默放行超限。后续若要模型直接产出标题，
    需同步修改归档 prompt 并重跑 `verify_prompt_parity.py`。
-2. **weekly_plan 独立建表**，没有指向 `articles` 的外键。周计划里存在
-   「盘点素材」「数据复盘」这类不对应任何文章的任务，且计划通常先于文章存在，
-   加外键会逼出假文章行。`article_id` 只做弱关联并建索引。
-3. **`tracking.revenue_cents` 是人工录入字段**（默认 0），与看板的「预估收益」
+2. **`tracking.revenue_cents` 是人工录入字段**（默认 0），与看板的「预估收益」
    分开展示：一个是后台抄来的真实数，一个是 RPM 换算值，绝不混为一谈。
 
 ## Phase 4 关键约定

@@ -10,7 +10,6 @@ import type {
   PlatformShare,
   ProjectFile,
   TrendPoint,
-  WeeklyTask,
 } from "./types";
 
 /** 文章管理 4 行基线（状态 / 作品 / 阅读量 与画布一致） */
@@ -86,22 +85,6 @@ export const SEED_ASSET_KPIS: Kpi[] = [
   { label: "待分类", value: "213", delta: "待人工归档", tone: "warning" },
 ];
 
-/** 周计划：7 列每日任务（周五=沧元图专属日） */
-export const SEED_WEEKLY_TASKS: WeeklyTask[] = [
-  { id: "w1", weekday: 0, title: "微头条 ×2：凡人修仙传新集速评", platform: "toutiao", status: "done" },
-  { id: "w2", weekday: 0, title: "小红书图文：韩立高光台词卡", platform: "xhs", status: "done" },
-  { id: "w3", weekday: 1, title: "深度文：仙逆改编争议 3000 字", platform: "baijia", status: "doing" },
-  { id: "w4", weekday: 2, title: "盘点素材：打戏 7 场截帧整理", platform: null, status: "planned" },
-  { id: "w5", weekday: 2, title: "素材归档：待分类 213 张清 50", platform: null, status: "planned" },
-  { id: "w6", weekday: 3, title: "标题 A·B 测试：两版沧元图标题", platform: "xhs", status: "planned" },
-  { id: "w7", weekday: 4, title: "沧元图专属：S2 第 21 集解析", platform: "bilibili", status: "planned" },
-  { id: "w8", weekday: 4, title: "沧元图专属：孟川立绘配图 6 张", platform: null, status: "planned" },
-  { id: "w9", weekday: 5, title: "数据复盘：四平台阅读/互动汇总", platform: null, status: "planned" },
-  { id: "w10", weekday: 6, title: "下周排期：选题池补 5 条", platform: null, status: "planned" },
-];
-
-export const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-
 /** 数据看板：近 14 日阅读趋势 */
 export const SEED_TREND: TrendPoint[] = [
   { date: "07-18", views: 5200 },
@@ -158,7 +141,6 @@ export const SEED_FILES: ProjectFile[] = [
   { name: "复用组件库.ardot", kind: "设计稿", size: "860 KB", updatedAt: "2026-08-03 21:22" },
   { name: "工作台 Dashboard.ardot", kind: "屏设计", size: "420 KB", updatedAt: "2026-08-03 20:58" },
   { name: "文章管理 Articles.ardot", kind: "屏设计", size: "388 KB", updatedAt: "2026-08-03 20:51" },
-  { name: "周计划 Weekly.ardot", kind: "屏设计", size: "356 KB", updatedAt: "2026-08-03 20:44" },
   { name: "数据看板 Analytics.ardot", kind: "屏设计", size: "402 KB", updatedAt: "2026-08-03 20:37" },
   { name: "设计资产交接清单.md", kind: "文档", size: "11 KB", updatedAt: "2026-08-03 21:55" },
   { name: "国漫笔记重启方案.md", kind: "文档", size: "15 KB", updatedAt: "2026-08-03 20:27" },

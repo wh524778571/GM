@@ -8,7 +8,6 @@ const BASE = process.argv[2] ?? "http://localhost:3000";
 const PAGES = [
   { path: "/", must: ["工作台", "本周概览", "近期文章", "待发布队列"] },
   { path: "/articles", must: ["文章管理", "阅读量", "慕兰之战", "沧元图"] },
-  { path: "/weekly", must: ["周计划", "周五", "沧元图"] },
   { path: "/analytics", must: ["数据看板", "总阅读量", "平台分布"] },
   { path: "/writer", must: ["AI 写作", "创作设置", "实时预览"] },
   { path: "/assets", must: ["配图管理", "素材总数", "825"] },

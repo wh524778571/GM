@@ -1,4 +1,4 @@
-"""Phase 5/6 新增端点测试：素材上传、项目文件、周计划删除、润色、导出。
+"""Phase 5/6 新增端点测试：素材上传、项目文件、润色、导出。
 
 坑 1「入口层断链」：`test_new_paths_registered` 忘挂路由立刻红。
 坑 3「静默成功」：
@@ -19,14 +19,12 @@ from app.core.settings import settings
 from app.db.base import get_session
 from app.main import app
 from app.models.article import Article, ArticleStatus
-from app.models.weekly_plan import WeeklyPlanTask
 from app.services.ai.errors import AIConfigError
 from app.services.ai.provider import MockProvider
 
 NEW_PATHS = {
     "/materials",
     "/files",
-    "/weekly-plan/{task_id}",
     "/articles/{article_id}/polish",
     "/articles/{article_id}/export",
 }
@@ -50,7 +48,6 @@ def test_new_paths_registered() -> None:
     spec = app.openapi()
     missing = NEW_PATHS - set(spec["paths"])
     assert not missing, f"未挂载的新端点：{missing}"
-    assert "delete" in spec["paths"]["/weekly-plan/{task_id}"]
     assert "post" in spec["paths"]["/materials"]
     assert {"get", "post", "delete"} <= set(spec["paths"]["/files"])
 
@@ -144,17 +141,6 @@ def test_files_delete_outside_uploads_is_403(client, monkeypatch, tmp_path) -> N
 
     # 路径穿越同样必须被挡
     assert client.delete("/files?rel_path=uploads/../方案.md").status_code == 403
-
-
-# ── 周计划删除 ────────────────────────────────────────────────
-def test_weekly_delete(client, session) -> None:
-    task = WeeklyPlanTask(week_start="2026-08-03", weekday=4, title="沧元图解析", status="planned")
-    session.add(task)
-    session.flush()
-
-    assert client.delete(f"/weekly-plan/{task.id}").json()["deleted"] is True
-    assert client.get("/weekly-plan").json()["items"] == []
-    assert client.delete(f"/weekly-plan/{task.id}").status_code == 404
 
 
 # ── 润色 ──────────────────────────────────────────────────────

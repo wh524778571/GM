@@ -25,16 +25,6 @@ export interface Kpi {
   tone?: "success" | "warning" | "neutral";
 }
 
-export interface WeeklyTask {
-  id: number | string;
-  /** 0=周一 … 6=周日 */
-  weekday: number;
-  title: string;
-  platform?: PlatformKey | null;
-  status: "planned" | "doing" | "done" | "skipped";
-  note?: string | null;
-}
-
 export interface MaterialItem {
   id: number | string;
   /** `作品名_用途` 形式的展示名 */

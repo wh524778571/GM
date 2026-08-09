@@ -13,14 +13,12 @@ from app.api.routers.materials import router as materials_router
 from app.api.routers.publish import router as publish_router
 from app.api.routers.tracking import router as tracking_router
 from app.api.routers.topics import router as topics_router
-from app.api.routers.weekly import router as weekly_router
 
 ROUTERS: tuple[APIRouter, ...] = (
     articles_router,
     publish_router,
     tracking_router,
     analytics_router,
-    weekly_router,
     materials_router,
     files_router,
     topics_router,

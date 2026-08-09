@@ -3,10 +3,6 @@
 @tailwind utilities;
 
 :root {
-  /* 周计划「周五=沧元图专属日」高亮底色。
-     交接清单 §1.2 的 tailwind.config.ts 需逐值照抄，故该屏专用色以 CSS 变量承载，
-     业务组件仍不出现裸 hex。 */
-  --weekly-friday-bg: #1a1410;
 }
 
 html {

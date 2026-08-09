@@ -28,8 +28,6 @@ PHASE2_PATHS = {
     "/tracking",
     "/analytics",
     "/analytics/summary",
-    "/weekly-plan",
-    "/weekly-plan/{task_id}",
 }
 
 
@@ -171,15 +169,3 @@ def test_analytics_reports_no_data_instead_of_zero(client):
     assert kpi["engagement"]["avg_rate"] is None
 
 
-# ── 周计划 ────────────────────────────────────────────────────
-def test_weekly_plan_crud(client):
-    created = client.post(
-        "/weekly-plan",
-        json={"week_start": "2026-08-03", "weekday": 0, "title": "盘点仙逆本周素材"},
-    )
-    assert created.status_code == 201
-    task_id = created.json()["id"]
-
-    assert client.get("/weekly-plan", params={"week_start": "2026-08-03"}).json()["returned"] == 1
-    assert client.patch(f"/weekly-plan/{task_id}", json={"status": "done"}).json()["status"] == "done"
-    assert client.patch("/weekly-plan/999999", json={"status": "done"}).status_code == 404

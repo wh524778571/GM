@@ -9,7 +9,6 @@ import {
   SEED_DASHBOARD_KPIS,
   SEED_FILES,
   SEED_MATERIALS,
-  SEED_WEEKLY_TASKS,
 } from "./seed";
 import { formatCny, formatCompact, formatPercent } from "./format";
 import { toImageProxyUrl } from "./media";
@@ -21,7 +20,6 @@ import type {
   MaterialItem,
   ProjectFile,
   Sourced,
-  WeeklyTask,
 } from "./types";
 
 // ── 后端 schema 的最小结构（对齐 rebuild/backend/app/api/schemas.py） ──
@@ -48,17 +46,6 @@ interface TrackingOut {
 }
 interface TrackingListResponse {
   items: TrackingOut[];
-}
-interface WeeklyTaskOut {
-  id: number;
-  weekday: number;
-  title: string;
-  platform?: string | null;
-  status: string;
-  note?: string | null;
-}
-interface WeeklyPlanResponse {
-  items: WeeklyTaskOut[];
 }
 interface MaterialOut {
   id: number;
@@ -242,29 +229,6 @@ export async function getAssetKpis(): Promise<Sourced<Kpi[]>> {
       { label: "已分类", value: String(classified), delta: "占比 74%", tone: "success" },
       { label: "待分类", value: String(total - classified), delta: "待人工归档", tone: "warning" },
     ],
-  };
-}
-
-// ── 周计划 ────────────────────────────────────────────────────
-export async function getWeeklyTasks(): Promise<Sourced<WeeklyTask[]>> {
-  const plan = await backendGet<WeeklyPlanResponse>("/weekly-plan");
-  if (!plan || !Array.isArray(plan.items) || plan.items.length === 0) {
-    return { source: "seed", data: SEED_WEEKLY_TASKS };
-  }
-  return {
-    source: "backend",
-    data: plan.items.map((t) => ({
-      id: t.id,
-      weekday: t.weekday,
-      title: t.title,
-      platform: t.platform ? normalizePlatform(t.platform) : null,
-      status: (["planned", "doing", "done", "skipped"] as const).includes(
-        t.status as "planned" | "doing" | "done" | "skipped",
-      )
-        ? (t.status as WeeklyTask["status"])
-        : "planned",
-      note: t.note ?? null,
-    })),
   };
 }
 

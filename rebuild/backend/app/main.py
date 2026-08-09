@@ -9,10 +9,9 @@ Phase 2（内容闭环，见 app/api/routers/）：
     4. /articles*             文章 CRUD + AI 四平台生成 + 质检
     5. /tracking              平台数据追踪写入 / 查询
     6. /analytics*            数据看板（KPI / 明细汇总）
-    7. /weekly-plan*          周计划
 
 Phase 4（人工发布闭环）：
-    8. /articles/{id}/publish/*  四平台发布包 / 状态 / 人工确认 / 失败登记
+    7. /articles/{id}/publish/*  四平台发布包 / 状态 / 人工确认 / 失败登记
 
 原则：绝不静默成功（坑 3）。渲染缺图、规则越界一律以 warnings/missing_images
 返回；AI 未配置/失败一律显式 5xx；数据库不可用时 /health 返回 database_ok=false；
