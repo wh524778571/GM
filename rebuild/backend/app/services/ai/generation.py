@@ -254,6 +254,7 @@ class GenerationService:
         *,
         avoid_titles: list[str] | None = None,
         avoid_keys: list[str] | None = None,
+        recent_context: str = "",
     ) -> list[dict]:
         """「今日推荐选题」专用：调用模型产出选题草案（不写文章，用独立 TOPIC_SYSTEM_PROMPT）。
 
@@ -265,7 +266,9 @@ class GenerationService:
 
         avoid_titles = avoid_titles or []
         avoid_keys = avoid_keys or []
-        user = build_topic_prompt(today, count, avoid_titles, avoid_keys)
+        user = build_topic_prompt(
+            today, count, avoid_titles, avoid_keys, recent_context=recent_context
+        )
         raw = self._call_model(
             user,
             temperature=0.7,

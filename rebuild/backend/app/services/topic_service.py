@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import glob
 import json
+import os
 import re
 
 from sqlalchemy.orm import Session
@@ -27,6 +29,53 @@ from app.services.ai.generation import GenerationService
 # 去重窗口：今日推荐过的，近 N 天内不再推（实现「明天尽量不推」）
 DEDUP_DAYS = 2
 TOPIC_TYPES = ["一线资讯", "小众剧情", "趣事", "人物生日", "大事记", "常青候选"]
+
+# 近期真实热点数据源（cn-last30days 扫描输出目录）；可用 CN30_DIR 环境变量覆盖
+CN30_DIR = os.path.expanduser(os.getenv("CN30_DIR", "~/Documents/CnLast30Days"))
+
+
+def _score_of(eng: dict | None) -> int:
+    """把不同平台五花八门的互动量字段归一成一个可比分数。"""
+    eng = eng or {}
+    return int(eng.get("interactions") or eng.get("likes") or eng.get("reads") or 0)
+
+
+def _load_recent_context(limit: int = 15) -> str:
+    """读最近一次 cn-last30days 扫描结果，提取高互动真实讨论，作为选题取材池。
+
+    返回格式化字符串（标题/描述/平台/互动量），无扫描数据时返回空串——
+    由 prompt 走降级分支（只基于模型确有把握的近期事件，不编旧事件）。
+    """
+    try:
+        files = sorted(
+            glob.glob(os.path.join(CN30_DIR, "cn30days_*.json")),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+        if not files:
+            return ""
+        with open(files[0], encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return ""
+
+    rows: list[tuple[int, str, str, str]] = []
+    for pname, pdata in (data.get("platforms") or {}).items():
+        if not isinstance(pdata, dict):
+            continue
+        label = pdata.get("label") or pname
+        for it in pdata.get("items") or []:
+            title = (it.get("title") or "").strip()
+            if not title:
+                continue
+            rows.append((_score_of(it.get("engagement")), label, title, (it.get("desc") or "").strip()))
+
+    rows.sort(key=lambda x: x[0], reverse=True)
+    lines = []
+    for _score, label, title, desc in rows[:limit]:
+        tail = f" — {desc}" if desc else ""
+        lines.append(f"- [{label}] {title}{tail}（互动 {_score:,}）")
+    return "\n".join(lines)
 
 _VALID_ARTICLE_TYPES = ("depth", "info")
 
@@ -71,6 +120,9 @@ def generate_topics(today: str, session: Session, *, count: int = 5) -> dict:
     blacklisted = repo.list_blacklisted()
     blacklisted_keys = {_norm_key(b.title) for b in blacklisted}
 
+    # 真实近期热点取材池：最近一次 cn-last30days 扫描的高互动讨论（无则降级）
+    recent_context = _load_recent_context()
+
     svc = GenerationService(provider, session)
 
     collected: list[dict] = []
@@ -79,7 +131,13 @@ def generate_topics(today: str, session: Session, *, count: int = 5) -> dict:
     while len(collected) < count and rounds < 3:
         rounds += 1
         avoid = [c["title"] for c in collected] + [b.title for b in blacklisted]
-        suggestions = svc.suggest_topics(today, count, avoid_titles=avoid, avoid_keys=list(seen_keys))
+        suggestions = svc.suggest_topics(
+            today,
+            count,
+            avoid_titles=avoid,
+            avoid_keys=list(seen_keys),
+            recent_context=recent_context,
+        )
         for s in suggestions:
             if len(collected) >= count:
                 break
