@@ -159,6 +159,53 @@ class AnalyticsService:
             for article_id, views, likes, comments, bookmarks, revenue in rows
         ]
 
+    def article_detail(self, article_id: str) -> dict:
+        """单篇文章的聚合数据：总阅读/点赞/评论/收藏/收益 + 分平台 + 每日阅读。
+
+        没有 tracking 记录也正常返回（has_tracking=False），文章详情页据此显示「暂无发布数据」。
+        """
+        rows = self.tracking.list_by_article(article_id)
+        totals = Totals()
+        per_platform: dict[str, Totals] = {}
+        daily_map: dict[str, int] = {}
+        for t in rows:
+            totals.views += t.views
+            totals.likes += t.likes
+            totals.comments += t.comments
+            totals.bookmarks += t.bookmarks
+            totals.revenue_cents += t.revenue_cents
+            totals.rows += 1
+            p = per_platform.setdefault(t.platform, Totals())
+            p.views += t.views
+            p.likes += t.likes
+            p.comments += t.comments
+            p.bookmarks += t.bookmarks
+            p.revenue_cents += t.revenue_cents
+            p.rows += 1
+            daily_map[t.date] = daily_map.get(t.date, 0) + t.views
+        platforms: dict[str, dict] = {}
+        for key, tot in per_platform.items():
+            rpm = self.registry.revenue_rpm_cents(key)
+            d = tot.to_dict()
+            d.update(
+                {
+                    "platform": key,
+                    "platform_name": self.registry.get(key).name
+                    if key in self.registry.keys()
+                    else key,
+                    "revenue_rpm_cents": rpm,
+                    "estimated_revenue_cents": int(tot.views / 1000 * rpm) if rpm else 0,
+                }
+            )
+            platforms[key] = d
+        return {
+            "article_id": article_id,
+            "has_tracking": bool(rows),
+            "totals": totals.to_dict(),
+            "platforms": platforms,
+            "daily": [{"date": k, "views": v} for k, v in sorted(daily_map.items())],
+        }
+
     # ── KPI 看板 ──────────────────────────────────────────────
     def kpi(self) -> dict:
         totals = self.totals()

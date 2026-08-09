@@ -25,3 +25,9 @@ def analytics_summary(
 ) -> dict:
     """明细汇总：总量 / 分平台 / TopN 文章 / 按日趋势。"""
     return AnalyticsService(session).summary(top_articles=top_articles, days=days)
+
+
+@router.get("/analytics/article/{article_id}")
+def analytics_article(article_id: str, session: Session = Depends(get_session)) -> dict:
+    """单篇文章的发布/互动数据（阅读·点赞·评论·收益），按平台与按日拆分。"""
+    return AnalyticsService(session).article_detail(article_id)

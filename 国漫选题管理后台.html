@@ -228,6 +228,34 @@
     padding:10px 18px;border-radius:8px;font-size:13px;z-index:50;opacity:0;transition:.25s;pointer-events:none;
   }
   .banner.show{opacity:1;}
+  /* ===== 文章详情 ===== */
+  .art-detail{padding-top:4px;}
+  .detail-head{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;}
+  .detail-head .back{align-self:flex-start;background:var(--surface-2);color:var(--accent);border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:var(--font);}
+  .detail-head .back:hover{background:var(--nav-active);}
+  .detail-title{font-size:20px;font-weight:600;color:var(--text);}
+  .detail-meta{display:flex;align-items:center;gap:12px;}
+  .muted{color:var(--text-dim);font-size:13px;}
+  .pf-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+  .pf-tab{padding:6px 14px;border-radius:16px;background:var(--surface-2);color:var(--text-dim);cursor:pointer;font-size:13px;border:1px solid transparent;font-family:var(--font);}
+  .pf-tab.active{color:#fff;border-color:var(--accent);background:rgba(255,92,58,0.15);}
+  .art-card{background:var(--surface);border-radius:8px;padding:16px;margin-bottom:12px;}
+  .art-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .wordcount{color:var(--text-mute);font-size:12px;}
+  .art-ptitle{font-size:15px;font-weight:600;color:var(--text);margin-bottom:10px;}
+  .prose{white-space:pre-wrap;line-height:1.75;color:var(--text);font-size:14px;max-height:340px;overflow-y:auto;padding-right:6px;}
+  .stat-row{display:flex;gap:28px;}
+  .stat{display:flex;flex-direction:column;}
+  .stat-num{font-size:20px;font-weight:600;color:var(--text);}
+  .stat-lab{font-size:12px;color:var(--text-dim);}
+  .plat-stats{margin-top:14px;display:flex;flex-direction:column;gap:8px;}
+  .plat-stat{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-top:1px solid var(--border);}
+  .ps-name{font-weight:600;color:var(--text);}
+  .ps-val{color:var(--text-dim);}
+  .chip.s-draft{color:var(--yellow);}
+  .chip.s-pending{color:var(--text-dim);}
+  .chip.s-used{color:var(--green);}
+  .chip.s-review{color:var(--red-xhs);}
 </style>
 </head>
 <body>
@@ -351,6 +379,7 @@
           <div class="col-ops">操作</div>
         </div>
         <div id="articleRows"></div>
+        <div id="articleDetail" class="art-detail" style="display:none"></div>
       </section>
 
       <!-- ========== 数据复盘 ========== -->
@@ -595,7 +624,7 @@
         <div class="col-platform ${pfCls}">${esc(pfText)}</div>
         <div class="col-date">${esc(date)}</div>
         <div class="col-ops">查看 · 数据</div>`;
-      row.addEventListener('click',()=>toast('文章详情开发中：'+a.article_id));
+      row.addEventListener('click',()=>showArticleDetail(a.article_id));
       el.appendChild(row);
     });
   }
@@ -609,6 +638,78 @@
       el.innerHTML=`<div class="placeholder err">加载失败：${esc(e.message)}<br>请确认后端已在 ${API_BASE} 运行</div>`;
     }
   }
+
+  // ===== 文章详情 =====
+  let curArtId=null, curArtData=null, curArtAnal=null, curArtPf='';
+  function showArticlesList(){
+    document.getElementById('articleRows').style.display='';
+    document.getElementById('articleDetail').style.display='none';
+  }
+  async function showArticleDetail(id){
+    curArtId=id;
+    const det=document.getElementById('articleDetail');
+    det.style.display='block';
+    document.getElementById('articleRows').style.display='none';
+    det.innerHTML='<div class="placeholder">加载文章详情…</div>';
+    try{
+      const [art, anal] = await Promise.all([
+        api('/articles/'+encodeURIComponent(id)),
+        api('/analytics/article/'+encodeURIComponent(id))
+      ]);
+      curArtData=art; curArtAnal=anal; curArtPf='';
+      renderArticleDetail();
+    }catch(e){
+      det.innerHTML=`<div class="placeholder err">加载失败：${esc(e.message)}</div>`;
+    }
+  }
+  function renderArticleDetail(){
+    const art=curArtData, anal=curArtAnal||{};
+    const st=ART_STATUS[art.status]||{label:art.status||'—', cls:'s-pending'};
+    const titles=art.titles||{};
+    const pfKeys=PF_ORDER.filter(p=> (art.contents&&art.contents[p.key]) || titles[p.key]);
+    if(!curArtPf && pfKeys.length) curArtPf=pfKeys[0].key;
+    const upd=(art.updated_at||'').slice(0,10);
+    let html=`<div class="detail-head">
+      <button class="back" onclick="showArticlesList()">← 返回列表</button>
+      <div class="detail-title">${esc(art.title)}</div>
+      <div class="detail-meta"><span class="chip ${st.cls}">${st.label}</span><span class="muted">更新 ${esc(upd)}</span></div>
+    </div>`;
+    if(pfKeys.length){
+      html+=`<div class="pf-tabs">`+pfKeys.map(p=>`<div class="pf-tab ${p.key===curArtPf?'active':''}" onclick="switchArtPf('${p.key}')">${p.name}</div>`).join('')+`</div>`;
+    }
+    const ckey=curArtPf;
+    const cTitle=titles[ckey]||art.title;
+    const cBody=(art.contents&&art.contents[ckey])||'';
+    const wc=cBody.length;
+    html+=`<div class="art-card">
+      <div class="art-card-head"><span class="muted">${esc(PF_NAME[ckey]||ckey)} · 标题</span><span class="wordcount">${wc}字</span></div>
+      <div class="art-ptitle">${esc(cTitle)}</div>
+      <div class="prose">${cBody?esc(cBody):'<span class="muted">（该平台暂无内容）</span>'}</div>
+    </div>`;
+    if(anal.has_tracking){
+      const t=anal.totals||{};
+      html+=`<div class="art-card"><div class="art-card-head"><span class="muted">发布数据</span></div>
+      <div class="stat-row">
+        <div class="stat"><span class="stat-num">${fmtNum(t.views||0)}</span><span class="stat-lab">阅读</span></div>
+        <div class="stat"><span class="stat-num">${fmtNum(t.likes||0)}</span><span class="stat-lab">点赞</span></div>
+        <div class="stat"><span class="stat-num">${fmtNum(t.comments||0)}</span><span class="stat-lab">评论</span></div>
+        <div class="stat"><span class="stat-num">${fmtMoney(t.revenue_cents||0)}</span><span class="stat-lab">收益</span></div>
+      </div>`;
+      const plats=anal.platforms||{};
+      const pk=Object.keys(plats);
+      if(pk.length){
+        html+=`<div class="plat-stats">`+pk.map(k=>{
+          const p=plats[k];
+          return `<div class="plat-stat"><span class="ps-name">${esc(p.platform_name||k)}</span><span class="ps-val">${fmtNum(p.views||0)}阅读 · ${fmtNum(p.likes||0)}赞</span></div>`;
+        }).join('')+`</div>`;
+      }
+      html+=`</div>`;
+    }else{
+      html+=`<div class="art-card"><div class="muted" style="padding:8px 0">暂无发布数据（该文尚未记录阅读/互动，或还未发布）。</div></div>`;
+    }
+    document.getElementById('articleDetail').innerHTML=html;
+  }
+  function switchArtPf(key){ curArtPf=key; renderArticleDetail(); }
 
   // ===== 数据复盘 =====
   async function loadAnalytics(){
