@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>国漫选题台 · Yolo 的国漫笔记</title>
+<style>
+  :root{
+    --bg:#0A0A0C;
+    --surface:#141417;
+    --surface-2:#1C1C20;
+    --border:#27272A;
+    --nav-active:#1E130D;
+    --text:#EFEBE2;
+    --text-dim:#A8A298;
+    --text-mute:#6B6760;
+    --accent:#FF5C3A;
+    --green:#4ADE80;
+    --yellow:#FBBF24;
+    --pink:#FB7299;
+    --blue:#3B82F6;
+    --red-toutiao:#FF4D4F;
+    --red-xhs:#FF2442;
+    --font:"Sarasa Gothic SC","PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--font);
+    background:var(--bg);
+    color:var(--text);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{display:flex;height:100vh;}
+
+  /* ===== 侧边栏 ===== */
+  .sidebar{
+    width:240px;flex:0 0 240px;height:100%;
+    background:var(--surface);
+    border-right:1px solid var(--border);
+    padding:28px 0;
+    display:flex;flex-direction:column;
+  }
+  .brand{font-size:18px;font-weight:700;color:var(--text);padding:0 24px;}
+  .brand-sub{font-size:12px;color:var(--text-mute);padding:0 24px;margin-top:4px;}
+  .divider{height:1px;background:var(--border);margin:24px 24px;}
+  .nav-item{
+    display:flex;align-items:center;
+    height:40px;margin:0 12px;padding:0 28px;
+    border-radius:8px;font-size:14px;color:var(--text-dim);
+    cursor:pointer;transition:.15s;user-select:none;
+  }
+  .nav-item:hover{color:var(--text);}
+  .nav-item.active{background:var(--nav-active);color:var(--accent);font-weight:600;}
+
+  /* ===== 主区 ===== */
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .topbar{
+    height:64px;flex:0 0 64px;
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+    display:flex;align-items:center;
+    padding:0 32px;gap:16px;
+  }
+  .topbar h1{font-size:20px;font-weight:700;flex:1;}
+  .search{
+    width:280px;height:32px;border-radius:8px;
+    background:var(--surface-2);color:var(--text-mute);
+    display:flex;align-items:center;padding:0 16px;font-size:13px;
+  }
+  .btn{
+    height:32px;border-radius:8px;border:none;cursor:pointer;
+    font-family:var(--font);font-size:13px;display:flex;align-items:center;
+    padding:0 16px;transition:.15s;
+  }
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-primary:disabled{opacity:.55;cursor:default;filter:none;}
+  .btn-ghost{background:var(--surface-2);color:var(--text);}
+  .btn-ghost:hover{background:#26262c;}
+
+  .content{flex:1;overflow:auto;padding:28px 32px;position:relative;}
+  .view{display:none;}
+  .view.active{display:block;}
+  .sub{display:none;}
+  .sub.active{display:block;}
+
+  /* ===== 筛选栏 ===== */
+  .filters{display:flex;gap:12px;margin-bottom:16px;}
+  .chip{
+    height:32px;border-radius:16px;background:var(--surface-2);
+    color:var(--text-dim);display:flex;align-items:center;padding:0 16px;font-size:13px;cursor:pointer;
+  }
+
+  /* ===== 表格 ===== */
+  .table{width:100%;border-collapse:separate;border-spacing:0 8px;}
+  .thead{
+    background:var(--surface-2);border-radius:8px;height:44px;
+    display:flex;align-items:center;padding:0 16px;
+    font-size:13px;color:var(--text-dim);
+  }
+  .row{
+    background:var(--surface);border-radius:8px;height:56px;
+    display:flex;align-items:center;padding:0 16px;cursor:pointer;transition:.15s;
+  }
+  .row:hover{background:#1b1b20;}
+  .col-title{flex:1;font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:16px;}
+  .col-type{width:80px;font-size:13px;color:var(--text-dim);}
+  .col-num{width:90px;font-size:13px;color:var(--accent);}
+  .col-status{width:80px;font-size:13px;}
+  .col-status.s-used{color:var(--green);}
+  .col-status.s-draft{color:var(--yellow);}
+  .col-status.s-pending{color:var(--text-dim);}
+  .col-status.s-review{color:var(--red-xhs);}
+  .col-platform{width:140px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .col-date{width:70px;font-size:12px;color:var(--text-mute);}
+  .col-ops{width:120px;font-size:13px;color:var(--accent);text-align:right;}
+
+  /* 表头列宽对齐 */
+  .thead .col-title{flex:1;}
+  .thead .col-type{width:80px;}
+  .thead .col-num{width:90px;}
+  .thead .col-status{width:80px;}
+  .thead .col-platform{width:140px;}
+  .thead .col-date{width:70px;}
+  .thead .col-ops{width:120px;text-align:right;}
+
+  .pf-toutiao{color:var(--red-toutiao);}
+  .pf-baijia{color:var(--blue);}
+  .pf-bilibili{color:var(--pink);}
+  .pf-xhs{color:var(--red-xhs);}
+  .pf-all{color:var(--text-dim);}
+
+  /* ===== 选题详情 ===== */
+  .detail-title{font-size:22px;font-weight:700;margin-bottom:14px;}
+  .back{color:var(--text-dim);font-size:13px;cursor:pointer;margin-bottom:16px;display:inline-block;}
+  .back:hover{color:var(--text);}
+  .meta{display:flex;gap:24px;margin-bottom:24px;font-size:13px;flex-wrap:wrap;}
+  .meta .m-status{color:var(--green);}
+  .meta .m-dim{color:var(--text-dim);}
+  .meta .m-accent{color:var(--accent);}
+  .meta .m-mute{color:var(--text-mute);}
+  .card-block{
+    background:var(--surface);border-radius:8px;padding:16px 20px;margin-bottom:16px;
+  }
+  .block-label{font-size:13px;color:var(--text-dim);margin-bottom:12px;}
+  .gene-chips{display:flex;gap:12px;flex-wrap:wrap;}
+  .gene-chip{
+    height:32px;border-radius:16px;background:var(--nav-active);
+    display:flex;align-items:center;padding:0 16px;font-size:13px;cursor:default;
+  }
+  .gene-chip.selectable{cursor:pointer;opacity:.65;transition:.15s;}
+  .gene-chip.selectable:hover{opacity:1;}
+  .gene-chip.selected{opacity:1;outline:2px solid var(--accent);}
+  .gc-1{color:var(--accent);}
+  .gc-2{color:var(--pink);}
+  .gc-3{color:var(--blue);}
+  .gc-4{color:var(--green);}
+  .direction{font-size:13px;color:var(--text-dim);line-height:1.7;white-space:pre-wrap;}
+  .detail-actions{display:flex;gap:12px;margin-top:24px;}
+
+  /* ===== 新建表单 ===== */
+  .form-field{margin-bottom:20px;max-width:760px;}
+  .form-label{font-size:13px;color:var(--text-dim);margin-bottom:8px;}
+  .form-input{
+    width:100%;height:44px;border-radius:8px;background:var(--surface-2);
+    border:none;color:var(--text);padding:0 16px;font-size:14px;font-family:var(--font);
+  }
+  .form-input::placeholder{color:var(--text-mute);}
+  .form-area{
+    width:100%;min-height:120px;border-radius:8px;background:var(--surface-2);
+    border:none;color:var(--text);padding:12px 16px;font-size:13px;font-family:var(--font);resize:vertical;
+  }
+  .form-area::placeholder{color:var(--text-mute);}
+  .form-row{display:flex;gap:16px;}
+  .form-row .form-field{flex:1;}
+
+  /* ===== 数据复盘 ===== */
+  .kpi-row{display:flex;gap:12px;margin-bottom:24px;}
+  .kpi-card{
+    flex:1;background:var(--surface);border-radius:8px;height:88px;padding:14px 16px;
+  }
+  .kpi-label{font-size:13px;color:var(--text-dim);}
+  .kpi-val{font-size:22px;font-weight:700;margin-top:8px;}
+  .analytics-grid{display:flex;gap:16px;align-items:flex-start;}
+  .chart-card{
+    background:var(--surface);border-radius:8px;padding:16px 20px;flex:1;
+  }
+  .chart-title{font-size:13px;color:var(--text-dim);margin-bottom:16px;}
+  .bars{display:flex;align-items:flex-end;gap:28px;height:140px;padding:0 8px;border-bottom:1px solid var(--border);}
+  .bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:1;}
+  .bar-val{font-size:11px;color:var(--accent);margin-bottom:4px;}
+  .bar{width:64px;background:var(--accent);border-radius:4px 4px 0 0;min-height:2px;}
+  .bar-day{font-size:11px;color:var(--text-mute);margin-top:6px;}
+  .top-card{
+    background:var(--surface);border-radius:8px;padding:16px 20px;width:456px;flex:0 0 456px;
+  }
+  .top-item{display:flex;justify-content:space-between;font-size:13px;padding:14px 0;border-bottom:1px solid var(--border);gap:12px;}
+  .top-item:last-child{border-bottom:none;padding-bottom:0;}
+  .top-item .ti-name{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .top-item .ti-heat{color:var(--accent);flex:0 0 auto;}
+  .compare{margin-top:24px;background:var(--surface);border-radius:8px;padding:16px 20px;}
+  .compare-title{font-size:13px;color:var(--text-dim);margin-bottom:16px;}
+  .compare-row{display:flex;align-items:center;gap:12px;margin-bottom:18px;}
+  .compare-name{width:56px;font-size:13px;color:var(--text);}
+  .compare-bars{flex:1;display:flex;flex-direction:column;gap:6px;}
+  .bar-track{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;}
+  .bar-read{height:8px;border-radius:4px;background:var(--accent);}
+  .bar-like{height:8px;border-radius:4px;background:var(--pink);}
+  .compare-val{width:140px;font-size:12px;color:var(--text-dim);text-align:right;}
+
+  /* ===== 配图素材 ===== */
+  .asset-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:21px;}
+  .asset-card{}
+  .asset-thumb{
+    height:130px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+    font-size:13px;color:var(--text-dim);padding:8px;text-align:center;overflow:hidden;
+  }
+  .asset-name{font-size:12px;color:var(--text-dim);margin-top:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .asset-sub{font-size:11px;color:var(--text-mute);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+  .placeholder{color:var(--text-mute);font-size:14px;padding:60px 0;text-align:center;line-height:1.7;}
+  .err{color:var(--red-xhs);}
+  .banner{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    padding:10px 18px;border-radius:8px;font-size:13px;z-index:50;opacity:0;transition:.25s;pointer-events:none;
+  }
+  .banner.show{opacity:1;}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 侧边栏 -->
+  <aside class="sidebar">
+    <div class="brand">国漫选题台</div>
+    <div class="brand-sub">Yolo 的国漫笔记</div>
+    <div class="divider"></div>
+    <div class="nav-item active" data-view="topics">选题管理</div>
+    <div class="nav-item" data-view="articles">文章库</div>
+    <div class="nav-item" data-view="analytics">数据复盘</div>
+    <div class="nav-item" data-view="assets">配图素材</div>
+    <div class="nav-item" data-view="settings">设置</div>
+  </aside>
+
+  <!-- 主区 -->
+  <main class="main">
+    <header class="topbar">
+      <h1 id="pageTitle">选题管理</h1>
+      <div class="search">搜索选题、标签…</div>
+      <button class="btn btn-primary" id="topNewBtn">+ 新建选题</button>
+    </header>
+
+    <div class="content">
+      <!-- ========== 选题管理 ========== -->
+      <section class="view active" id="view-topics">
+
+        <!-- 列表 -->
+        <div class="sub active" id="sub-list">
+          <div class="filters">
+            <div class="chip">全部类型 ▾</div>
+            <div class="chip">全部状态 ▾</div>
+            <div class="chip">热度优先 ▾</div>
+          </div>
+          <div class="thead">
+            <div class="col-title">选题标题</div>
+            <div class="col-type">类型</div>
+            <div class="col-num">热度</div>
+            <div class="col-status">状态</div>
+            <div class="col-platform">爆款基因</div>
+            <div class="col-date">更新</div>
+            <div class="col-ops">操作</div>
+          </div>
+          <div id="topicRows"></div>
+        </div>
+
+        <!-- 详情 -->
+        <div class="sub" id="sub-detail">
+          <div class="back" id="backToList">← 返回列表</div>
+          <div class="detail-title" id="dTitle">—</div>
+          <div class="meta" id="dMeta"></div>
+          <div class="card-block">
+            <div class="block-label">爆款基因</div>
+            <div class="gene-chips" id="dGenes"></div>
+          </div>
+          <div class="card-block">
+            <div class="block-label">内容方向</div>
+            <div class="direction" id="dDirection"></div>
+          </div>
+          <div class="detail-actions">
+            <button class="btn btn-primary" id="btnWrite">生成四平台文案</button>
+            <button class="btn btn-ghost" id="btnEdit">编辑选题</button>
+            <button class="btn btn-ghost" id="btnDelete" style="color:var(--red-xhs)">删除</button>
+          </div>
+        </div>
+
+        <!-- 新建 -->
+        <div class="sub" id="sub-new">
+          <div class="back" id="backFromNew">← 返回列表</div>
+          <div class="detail-title">新建选题</div>
+          <div class="form-field">
+            <div class="form-label">选题标题</div>
+            <input class="form-input" id="f-title" placeholder="例如：沧元图第19集，那个伏笔终于回收了">
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <div class="form-label">类型</div>
+              <input class="form-input" id="f-type" placeholder="热点 / 常青候选 / 盘点">
+            </div>
+            <div class="form-field">
+              <div class="form-label">热度来源</div>
+              <input class="form-input" id="f-heat" placeholder="如：抖音话题 1200万播放">
+            </div>
+          </div>
+          <div class="form-field">
+            <div class="form-label">内容方向</div>
+            <textarea class="form-area" id="f-direction" placeholder="描述这篇文章要讲什么、给读者什么价值、为什么现在写…"></textarea>
+          </div>
+          <div class="form-field">
+            <div class="form-label">爆款基因（可多选）</div>
+            <div class="gene-chips" id="f-genes">
+              <div class="gene-chip gc-1 selectable" data-gene="情绪钩子">情绪钩子</div>
+              <div class="gene-chip gc-2 selectable" data-gene="信息差">信息差</div>
+              <div class="gene-chip gc-3 selectable" data-gene="身份标签">身份标签</div>
+              <div class="gene-chip gc-4 selectable" data-gene="行动触发">行动触发</div>
+            </div>
+          </div>
+          <div class="detail-actions">
+            <button class="btn btn-primary" id="createTopic">创建选题</button>
+            <button class="btn btn-ghost" id="cancelNew">取消</button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========== 文章库 ========== -->
+      <section class="view" id="view-articles">
+        <div class="filters">
+          <div class="chip">全部状态 ▾</div>
+          <div class="chip">全部类型 ▾</div>
+          <div class="chip">最新更新 ▾</div>
+        </div>
+        <div class="thead">
+          <div class="col-title">文章标题</div>
+          <div class="col-type">形态</div>
+          <div class="col-num">字数</div>
+          <div class="col-status">状态</div>
+          <div class="col-platform">平台</div>
+          <div class="col-date">更新</div>
+          <div class="col-ops">操作</div>
+        </div>
+        <div id="articleRows"></div>
+      </section>
+
+      <!-- ========== 数据复盘 ========== -->
+      <section class="view" id="view-analytics">
+        <div class="kpi-row">
+          <div class="kpi-card"><div class="kpi-label">总阅读</div><div class="kpi-val" id="kpiViews">—</div></div>
+          <div class="kpi-card"><div class="kpi-label">总互动</div><div class="kpi-val" id="kpiEngage">—</div></div>
+          <div class="kpi-card"><div class="kpi-label">平均互动率</div><div class="kpi-val" id="kpiRate">—</div></div>
+          <div class="kpi-card"><div class="kpi-label">本月收益</div><div class="kpi-val" id="kpiRevenue">—</div></div>
+        </div>
+        <div class="analytics-grid">
+          <div class="chart-card">
+            <div class="chart-title">近7天阅读量（万）</div>
+            <div class="bars" id="barsChart"></div>
+          </div>
+          <div class="top-card">
+            <div class="chart-title">热门文章 Top3（按阅读）</div>
+            <div id="top3List"></div>
+          </div>
+        </div>
+        <div class="compare">
+          <div class="compare-title">平台对比（阅读 / 点赞）</div>
+          <div id="compareList"></div>
+        </div>
+      </section>
+
+      <!-- ========== 配图素材 ========== -->
+      <section class="view" id="view-assets">
+        <div class="asset-grid" id="materialGrid"></div>
+      </section>
+
+      <!-- ========== 设置 ========== -->
+      <section class="view" id="view-settings">
+        <div class="placeholder">设置面板（原型占位）</div>
+      </section>
+    </div>
+  </main>
+</div>
+<div class="banner" id="banner"></div>
+
+<script>
+  // ===== 配置 =====
+  const API_BASE = "http://127.0.0.1:8000";
+
+  const PF_NAME = {toutiao:"头条", baijia:"百家", bilibili:"B站", xhs:"小红书"};
+  const PF_ORDER = [
+    {key:"toutiao", name:"头条", cls:"pf-toutiao"},
+    {key:"baijia",  name:"百家", cls:"pf-baijia"},
+    {key:"bilibili",name:"B站",  cls:"pf-bilibili"},
+    {key:"xhs",     name:"小红书", cls:"pf-xhs"},
+  ];
+  const ART_STATUS = {
+    draft:    {label:"草稿",   cls:"s-draft"},
+    pending:  {label:"待发布", cls:"s-pending"},
+    published:{label:"已发布", cls:"s-used"},
+    failed:   {label:"发布失败",cls:"s-review"},
+  };
+
+  // ===== 工具 =====
+  function esc(s){
+    return (s==null?"":String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function fmtNum(n){
+    if(n==null) return "0";
+    if(n>=10000) return (n/10000).toFixed(1)+"万";
+    return String(n);
+  }
+  function fmtMoney(cents){
+    return "¥"+(cents/100).toLocaleString('zh-CN');
+  }
+  function weekday(d){
+    const names=['日','一','二','三','四','五','六'];
+    const dt=new Date(d+'T00:00:00');
+    return isNaN(dt)? (d||'').slice(5) : names[dt.getDay()];
+  }
+  function toast(msg){
+    const b=document.getElementById('banner');
+    b.textContent=msg; b.classList.add('show');
+    clearTimeout(b._t); b._t=setTimeout(()=>b.classList.remove('show'),2600);
+  }
+  async function api(path, opts){
+    const res = await fetch(API_BASE+path, opts);
+    if(!res.ok){
+      let detail="";
+      try{ const j=await res.json(); detail = j.detail? (typeof j.detail==='string'?j.detail:JSON.stringify(j.detail)) : ""; }catch(e){}
+      throw new Error((detail? detail+" " : "")+"("+res.status+")");
+    }
+    return res.json();
+  }
+
+  // ===== 选题 =====
+  let topicsData=[];
+  let selectedTopicIdx=-1;
+
+  function topicStatus(t){
+    if(t.blacklisted) return {label:"已屏蔽", cls:"s-review"};
+    if(t.fresh)       return {label:"今日推荐", cls:"s-used"};
+    return {label:"历史候选", cls:"s-pending"};
+  }
+  function renderTopics(items){
+    const el=document.getElementById('topicRows');
+    el.innerHTML='';
+    if(!items.length){
+      el.innerHTML='<div class="placeholder">今日还没有选题。<br>可在后端调用 POST /topics/generate 生成，或在右上角手动新建。</div>';
+      return;
+    }
+    items.forEach((t,i)=>{
+      const st=topicStatus(t);
+      const genes=(t.viral_genes||[]).join('·')||'—';
+      const date=(t.date||'').slice(5);
+      const row=document.createElement('div');
+      row.className='row';
+      row.innerHTML=`
+        <div class="col-title">${esc(t.title)}</div>
+        <div class="col-type">${esc(t.topic_type||'—')}</div>
+        <div class="col-num">${t.recommend_count? t.recommend_count : '—'}</div>
+        <div class="col-status ${st.cls}">${st.label}</div>
+        <div class="col-platform pf-all" title="${esc(genes)}">${esc(genes)}</div>
+        <div class="col-date">${esc(date)}</div>
+        <div class="col-ops">查看 / 编辑</div>`;
+      row.addEventListener('click',()=>showTopicDetail(i));
+      el.appendChild(row);
+    });
+  }
+  async function loadTopics(){
+    const el=document.getElementById('topicRows');
+    el.innerHTML='<div class="placeholder">加载选题中…</div>';
+    try{
+      const data=await api('/topics/today');
+      topicsData=data.items||[];
+      renderTopics(topicsData);
+    }catch(e){
+      el.innerHTML=`<div class="placeholder err">加载失败：${esc(e.message)}<br>请确认后端已在 ${API_BASE} 运行</div>`;
+    }
+  }
+  function showTopicDetail(i){
+    const t=topicsData[i];
+    if(!t) return;
+    selectedTopicIdx=i;
+    document.getElementById('dTitle').textContent=t.title||'—';
+    const st=topicStatus(t);
+    const date=(t.date||'').slice(5);
+    document.getElementById('dMeta').innerHTML=`
+      <span class="m-status">${st.label}</span>
+      <span class="m-dim">${esc(t.topic_type||'—')}</span>
+      <span class="m-accent">热度 ${t.recommend_count||0}</span>
+      <span class="m-mute">${esc(date)} 生成</span>`;
+    const genes=t.viral_genes||[];
+    document.getElementById('dGenes').innerHTML = genes.length
+      ? genes.map((g,gi)=>`<div class="gene-chip gc-${(gi%4)+1}">${esc(g)}</div>`).join('')
+      : '<span class="m-mute">无</span>';
+    const dir=t.viral_why||t.summary||t.angle||'（暂无内容方向）';
+    document.getElementById('dDirection').textContent=dir;
+    showSub('detail');
+  }
+
+  // 详情操作：生成四平台文案 / 删除
+  document.getElementById('btnWrite').addEventListener('click', async ()=>{
+    const t=topicsData[selectedTopicIdx];
+    if(!t) return;
+    const btn=document.getElementById('btnWrite');
+    btn.disabled=true; const old=btn.textContent; btn.textContent='生成中…';
+    try{
+      const r=await api('/topics/'+t.id+'/write', {method:'POST'});
+      toast('已生成文章：'+r.article_id);
+    }catch(e){
+      toast('生成失败：'+e.message);
+    }finally{
+      btn.disabled=false; btn.textContent=old;
+    }
+  });
+  document.getElementById('btnDelete').addEventListener('click', async ()=>{
+    const t=topicsData[selectedTopicIdx];
+    if(!t) return;
+    if(!confirm('确定把「'+t.title+'」标记为「不再推荐」？')) return;
+    try{
+      await api('/topics/'+t.id+'/blacklist', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{"blacklisted":true}'});
+      toast('已屏蔽，刷新列表');
+      loadTopics(); showSub('list');
+    }catch(e){ toast('操作失败：'+e.message); }
+  });
+  document.getElementById('btnEdit').addEventListener('click', ()=>{
+    toast('编辑功能开发中（可先到后端修改）');
+  });
+
+  // 新建选题 → 真实写入 /topics/import
+  document.querySelectorAll('#f-genes .gene-chip').forEach(ch=>{
+    ch.addEventListener('click',()=>ch.classList.toggle('selected'));
+  });
+  document.getElementById('createTopic').addEventListener('click', async ()=>{
+    const title=document.getElementById('f-title').value.trim();
+    if(!title){ toast('请先填选题标题'); return; }
+    const genes=[...document.querySelectorAll('#f-genes .gene-chip.selected')].map(c=>c.dataset.gene);
+    const payload={
+      title,
+      summary: document.getElementById('f-heat').value.trim(),
+      angle:  document.getElementById('f-direction').value.trim(),
+      topic_type: document.getElementById('f-type').value.trim()||'常青候选',
+      article_type:'depth',
+      viral_genes: genes,
+      viral_why: document.getElementById('f-direction').value.trim(),
+    };
+    const btn=document.getElementById('createTopic');
+    btn.disabled=true; const old=btn.textContent; btn.textContent='创建中…';
+    try{
+      await api('/topics/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+      toast('选题已创建');
+      loadTopics(); showSub('list');
+    }catch(e){ toast('创建失败：'+e.message); }
+    finally{ btn.disabled=false; btn.textContent=old; }
+  });
+
+  // ===== 文章库 =====
+  function articleKind(a){
+    const n=Object.keys(a.contents||{}).length;
+    if(n>=4) return '四平台稿';
+    if(n>0)  return '多平台稿';
+    if(!a.content_text) return '空稿';
+    return '核心稿';
+  }
+  function renderArticles(items){
+    const el=document.getElementById('articleRows');
+    el.innerHTML='';
+    if(!items.length){ el.innerHTML='<div class="placeholder">文章库还是空的。</div>'; return; }
+    items.forEach(a=>{
+      const st=ART_STATUS[a.status]||{label:a.status||'—', cls:'s-pending'};
+      const titles=a.titles||{};
+      const keys=Object.keys(titles);
+      const pfs=keys.map(k=>PF_NAME[k]||k);
+      const pfText=pfs.length? pfs.join('·') : '—';
+      const pfCls=pfs.length>=4?'pf-all':('pf-'+(keys[0]||''));
+      let wc=(a.content_text||'').length;
+      if(!wc){ wc=Object.values(a.contents||{}).reduce((s,c)=>s+((c||'').length),0); }
+      const date=(a.updated_at||'').slice(5,10);
+      const row=document.createElement('div');
+      row.className='row';
+      row.innerHTML=`
+        <div class="col-title">${esc(a.title)}</div>
+        <div class="col-type">${esc(articleKind(a))}</div>
+        <div class="col-num" style="color:var(--text-dim)">${wc}字</div>
+        <div class="col-status ${st.cls}">${st.label}</div>
+        <div class="col-platform ${pfCls}">${esc(pfText)}</div>
+        <div class="col-date">${esc(date)}</div>
+        <div class="col-ops">查看 · 数据</div>`;
+      row.addEventListener('click',()=>toast('文章详情开发中：'+a.article_id));
+      el.appendChild(row);
+    });
+  }
+  async function loadArticles(){
+    const el=document.getElementById('articleRows');
+    el.innerHTML='<div class="placeholder">加载文章库…</div>';
+    try{
+      const data=await api('/articles?limit=100');
+      renderArticles(data.items||[]);
+    }catch(e){
+      el.innerHTML=`<div class="placeholder err">加载失败：${esc(e.message)}<br>请确认后端已在 ${API_BASE} 运行</div>`;
+    }
+  }
+
+  // ===== 数据复盘 =====
+  async function loadAnalytics(){
+    const set=(id,v)=>{const e=document.getElementById(id); if(e) e.textContent=v;};
+    ['kpiViews','kpiEngage','kpiRate','kpiRevenue'].forEach(id=>set(id,'…'));
+    try{
+      const data=await api('/analytics/summary?days=7');
+      const totals=data.totals||{};
+      const rate=totals.engagement_rate;
+      set('kpiViews', fmtNum(totals.views||0));
+      set('kpiEngage', fmtNum(totals.engagement||0));
+      set('kpiRate', rate==null?'暂无':(rate*100).toFixed(1)+'%');
+      const rec=(totals.revenue_cents||0);
+      const est=Object.values(data.platforms||{}).reduce((s,p)=>s+(p.estimated_revenue_cents||0),0);
+      set('kpiRevenue', est>0? (fmtMoney(rec)+' (估'+fmtMoney(est)+')') : fmtMoney(rec));
+
+      // 近7天柱状图
+      const daily=(data.daily||[]).slice(-7);
+      const maxV=Math.max(1,...daily.map(d=>d.views||0));
+      document.getElementById('barsChart').innerHTML = daily.length? daily.map(d=>{
+        const h=Math.max(2, Math.round((d.views||0)/maxV*124));
+        const v=(d.views||0)/10000;
+        return `<div class="bar-col"><div class="bar-val">${v>=1?v.toFixed(1):v.toFixed(2)}</div><div class="bar" style="height:${h}px"></div><div class="bar-day">${weekday(d.date)}</div></div>`;
+      }).join('') : '<div class="placeholder">近7天暂无追踪数据</div>';
+
+      // 热门文章 Top3
+      const top=(data.top_articles||[]).slice(0,3);
+      document.getElementById('top3List').innerHTML = top.length? top.map(a=>`
+        <div class="top-item"><span class="ti-name" title="${esc(a.title||'')}">${esc(a.title||'—')}</span><span class="ti-heat">${fmtNum(a.views||0)}</span></div>
+      `).join('') : '<div class="placeholder">暂无文章数据</div>';
+
+      // 平台对比
+      const plats=PF_ORDER.filter(p=>data.platforms&&data.platforms[p.key]);
+      const maxRead=Math.max(1,...plats.map(p=>(data.platforms[p.key].views||0)));
+      const maxLike=Math.max(1,...plats.map(p=>(data.platforms[p.key].likes||0)));
+      document.getElementById('compareList').innerHTML = plats.map(p=>{
+        const pd=data.platforms[p.key];
+        const rv=Math.round((pd.views||0)/maxRead*100);
+        const lv=Math.round((pd.likes||0)/maxLike*100);
+        return `<div class="compare-row">
+          <div class="compare-name ${p.cls}">${p.name}</div>
+          <div class="compare-bars">
+            <div class="bar-track"><div class="bar-read" style="width:${rv}%"></div></div>
+            <div class="bar-track"><div class="bar-like" style="width:${lv}%"></div></div>
+          </div>
+          <div class="compare-val">${fmtNum(pd.views||0)} · ${(pd.likes||0)}</div>
+        </div>`;
+      }).join('') || '<div class="placeholder">暂无平台数据</div>';
+
+    }catch(e){
+      ['kpiViews','kpiEngage','kpiRate','kpiRevenue'].forEach(id=>set(id,'—'));
+      document.getElementById('barsChart').innerHTML=`<div class="placeholder err">加载失败：${esc(e.message)}</div>`;
+    }
+  }
+
+  // ===== 配图素材 =====
+  const ASSET_COLORS=['#2A1A12','#12233A','#2A1220','#122A1A','#2A2012','#20122A','#2A1212','#2A2612'];
+  async function loadMaterials(){
+    const el=document.getElementById('materialGrid');
+    el.innerHTML='<div class="placeholder">加载配图库…</div>';
+    try{
+      const data=await api('/materials?limit=40');
+      const items=data.items||[];
+      if(!items.length){ el.innerHTML='<div class="placeholder">素材库为空。</div>'; return; }
+      el.innerHTML=items.map((m,i)=>{
+        const color=ASSET_COLORS[i%ASSET_COLORS.length];
+        const sub=[m.work, m.episode].filter(Boolean).join(' / ')||(m.source||'');
+        return `<div class="asset-card">
+          <div class="asset-thumb" style="background:${color}">${esc(m.stem||m.filename||'素材')}</div>
+          <div class="asset-name" title="${esc(m.stem||'')}">${esc(m.stem||m.filename||'素材')}</div>
+          <div class="asset-sub">${esc(sub)}</div>
+        </div>`;
+      }).join('');
+    }catch(e){
+      el.innerHTML=`<div class="placeholder err">加载失败：${esc(e.message)}<br>请确认后端已在 ${API_BASE} 运行</div>`;
+    }
+  }
+
+  // ===== 导航 / 子视图 =====
+  const pageTitle=document.getElementById('pageTitle');
+  const titles={topics:"选题管理", articles:"文章库", analytics:"数据复盘", assets:"配图素材", settings:"设置"};
+  const topNewBtn=document.getElementById('topNewBtn');
+
+  function showSub(name){
+    document.querySelectorAll('#view-topics .sub').forEach(s=>s.classList.remove('active'));
+    document.getElementById('sub-'+name).classList.add('active');
+  }
+
+  document.querySelectorAll('.nav-item').forEach(nav=>{
+    nav.addEventListener('click', ()=>{
+      document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+      nav.classList.add('active');
+      const v=nav.dataset.view;
+      document.querySelectorAll('.view').forEach(s=>s.classList.remove('active'));
+      document.getElementById('view-'+v).classList.add('active');
+      pageTitle.textContent=titles[v];
+      topNewBtn.style.display=(v==='topics')?'flex':'none';
+      if(v==='topics')   loadTopics();
+      if(v==='articles') loadArticles();
+      if(v==='analytics')loadAnalytics();
+      if(v==='assets')   loadMaterials();
+    });
+  });
+
+  document.getElementById('backToList').addEventListener('click', ()=>showSub('list'));
+  document.getElementById('backFromNew').addEventListener('click', ()=>showSub('list'));
+  document.getElementById('cancelNew').addEventListener('click', ()=>showSub('list'));
+  topNewBtn.addEventListener('click', ()=>showSub('new'));
+
+  // 首次进入默认加载选题列表
+  loadTopics();
+</script>
+</body>
+</html>

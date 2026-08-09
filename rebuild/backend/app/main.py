@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -55,6 +56,17 @@ app = FastAPI(
         "Phase 1：数据层 + 四平台渲染 + 配图匹配；Phase 2：AI 生成 + 内容闭环；"
         "Phase 4：人工发布闭环（绝不自动发布、绝不静默成功）"
     ),
+)
+
+# ── CORS ──────────────────────────────────────────────────────
+# 本地前端原型（国漫选题管理后台.html）与后端分处不同端口，浏览器同源策略会拦截
+# fetch。本后端为个人本地开发工具，放行本地来源（含 file:// 的 null origin 与
+# 127.0.0.1 任意端口的预览服务器）。生产机若需收紧，把 allow_origins 改为白名单。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 坑 1 防护：路由集中注册，不存在「写了端点忘了挂」
