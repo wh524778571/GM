@@ -24,7 +24,7 @@ from app.models.topic_recommendation import TopicRecommendation
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.topic_repository import TopicRepository
 from app.services.ai import AIConfigError, build_provider
-from app.services.ai.generation import GenerationService
+from app.services.ai.generation import GenerationService, ProgressFn
 
 # 去重窗口：今日推荐过的，近 N 天内不再推（实现「明天尽量不推」）
 DEDUP_DAYS = 2
@@ -185,10 +185,15 @@ def generate_topics(today: str, session: Session, *, count: int = 5) -> dict:
     return {"date": today, "items": persisted, "generated": len(collected)}
 
 
-def write_topic_article(topic_id: int, session: Session) -> dict:
+def write_topic_article(
+    topic_id: int,
+    session: Session,
+    on_progress: ProgressFn | None = None,
+) -> dict:
     """把某个选题写成四平台草稿，返回 {article_id, ok, titles, qa}。
 
     article_id 固定为 `topic-{id}`，幂等：重复点只更新同一篇草稿，不建重复文章。
+    on_progress 供异步任务上报真实阶段进度，同步调用方可不传。
     """
     provider = build_provider(settings.ai_provider)  # 无密钥 → AIConfigError
     repo = TopicRepository(session)
@@ -199,7 +204,12 @@ def write_topic_article(topic_id: int, session: Session) -> dict:
     article_id = f"topic-{topic.id}"
     svc = GenerationService(provider, session)
     atype = topic.article_type if topic.article_type in _VALID_ARTICLE_TYPES else "depth"
-    result = svc.generate(topic.title, article_type=atype, article_id=article_id)
+    result = svc.generate(
+        topic.title, article_type=atype, article_id=article_id, on_progress=on_progress
+    )
+
+    if on_progress is not None:
+        on_progress("save", 99, "保存草稿…")
 
     arepo = ArticleRepository(session)
     arepo.upsert(

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -35,6 +36,29 @@ from app.services.ai.prompts import (
 from app.services.ai.provider import AIProvider, extract_json_object
 from app.services.image_matching.matcher import ImageMatcherService
 from app.services.rendering import RenderResult, RenderService
+
+# 进度回调：(stage, percent, message) → None。生成耗时 30–120s，
+# 异步任务据此上报真实阶段，前端才能画出不骗人的进度条。
+ProgressFn = Callable[[str, int, str], None]
+
+
+def _noop_progress(stage: str, percent: int, message: str) -> None:
+    """默认无进度回调——同步调用方（CLI、测试）零负担。"""
+
+
+def _make_reporter(fn: ProgressFn | None) -> ProgressFn:
+    """包一层：回调自身异常绝不能连累生成主流程。"""
+    if fn is None:
+        return _noop_progress
+
+    def _safe(stage: str, percent: int, message: str) -> None:
+        try:
+            fn(stage, percent, message)
+        except Exception:  # noqa: BLE001 - 进度上报失败不影响生成
+            pass
+
+    return _safe
+
 
 # 标题超长时优先在这些标点处截断，避免生硬砍字
 _TITLE_CUT_CHARS = "：:，,。.！!？?、·—-～~ "
@@ -164,8 +188,14 @@ class GenerationService:
         max_tokens: int | None = None,
         temperature: float | None = None,
         strict: bool = False,
+        on_progress: ProgressFn | None = None,
     ) -> GenerationResult:
-        """topic 为选题（主题句）。strict=True 时质检 error 直接抛 QAError。"""
+        """topic 为选题（主题句）。strict=True 时质检 error 直接抛 QAError。
+
+        on_progress(stage, percent, message)：可选进度回调，供异步任务上报真实阶段。
+        回调异常一律吞掉（见 _report），进度上报绝不能影响生成本身。
+        """
+        report_progress = _make_reporter(on_progress)
         topic = (topic or "").strip()
         if not topic:
             raise GenerationError("选题不能为空", stage="input")
@@ -183,20 +213,28 @@ class GenerationService:
         ai_temperature = temperature if temperature is not None else settings.ai_temperature
 
         user_prompt = build_user_prompt(topic, article_type, requirement)
-        core = self._generate_core(user_prompt, ai_max_tokens, ai_temperature, article_type)
+        report_progress("core", 8, "正在写母稿（这一步最久，别关页面）…")
+        core = self._generate_core(
+            user_prompt, ai_max_tokens, ai_temperature, article_type, report_progress
+        )
 
         # 2) 逐平台改写（各自完整正文，保证字数充足且配图内联）
-        contents, rewrite_errors = self._rewrite_all_platforms(core, ai_max_tokens, ai_temperature)
+        report_progress("rewrite", 55, f"母稿 {len(core)} 字已就绪，开始改写四平台…")
+        contents, rewrite_errors = self._rewrite_all_platforms(
+            core, ai_max_tokens, ai_temperature, report_progress
+        )
         contents, content_enforcements = self._enforce_content_rules(contents)
         # 单平台改写失败兜底母稿：如实登记，绝不静默假成功
         enforcements = list(content_enforcements)
         enforcements.extend(rewrite_errors)
 
         # 3) 标题派生（确定性，不依赖模型）
+        report_progress("titles", 86, "派生四平台标题…")
         titles, title_enforcements = self._derive_titles(topic)
         enforcements.extend(title_enforcements)
 
         # 4) 配图建议（复用 image_matching，不重复实现）
+        report_progress("images", 90, "匹配配图…")
         image_sources, suggestions = self._suggest_images(
             contents, article_id=article_id, enabled=match_images
         )
@@ -204,9 +242,11 @@ class GenerationService:
         # 5) 四平台预览（复用 rendering，不重复实现）
         renders: dict[str, RenderResult] = {}
         if render:
+            report_progress("render", 94, "生成四平台预览…")
             renders = self._render(contents, article_id=article_id, match_images=match_images)
 
         # 6) 质检
+        report_progress("qa", 97, "质量检查…")
         report = qa.quality_check(titles, contents, image_sources, self.registry)
 
         result = GenerationResult(
@@ -312,7 +352,14 @@ class GenerationService:
         except AIResponseError as exc:
             raise GenerationError(str(exc), stage="parse") from exc
 
-    def _generate_core(self, user_prompt: str, max_tokens: int, temperature: float, article_type: str) -> str:
+    def _generate_core(
+        self,
+        user_prompt: str,
+        max_tokens: int,
+        temperature: float,
+        article_type: str,
+        report: ProgressFn = _noop_progress,
+    ) -> str:
         """生成完整母稿 core（模型写单篇长文最稳），不足目标则扩写一轮。
 
         glm-4-flash 单次输出约 1400 字上限，直接要 2000–3000 往往只给 600–1300 字。
@@ -332,6 +379,7 @@ class GenerationService:
         core = _coerce_text(data.get("core") or "").strip()
         if len(core) < lo:
             # 草稿未达目标 → 增量式扩写（拼接累加，突破单 call 输出上限）拉到 2000+
+            report("core_expand", 32, f"母稿初稿 {len(core)} 字，扩写到 {lo} 字以上…")
             core = self._expand_text(
                 core, lo, hi, keep_placeholders=True, max_tokens=max_tokens, temperature=0.85
             )
@@ -463,29 +511,48 @@ class GenerationService:
             raise GenerationError(f"{rule.name} 改写过短（{len(text)}字，需≥{low}）", stage="parse")
         return text
 
-    def _rewrite_all_platforms(self, core: str, max_tokens: int, temperature: float) -> tuple[dict[str, str], list[str]]:
+    def _rewrite_all_platforms(
+        self,
+        core: str,
+        max_tokens: int,
+        temperature: float,
+        report: ProgressFn = _noop_progress,
+    ) -> tuple[dict[str, str], list[str]]:
         """并行把母稿改写成各平台完整正文（相互独立，并发提速）。
 
         返回 (各平台正文, 失败告警列表)。单平台失败兜底用母稿，
         失败项进告警列表，由 generate() 汇总进 enforcements，绝不静默假成功。
+
+        用 as_completed 收结果：谁先跑完先上报，进度条反映真实完成数而非提交顺序。
         """
-        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         keys = list(self.registry.keys())
+        total = len(keys) or 1
         results: dict[str, str] = {}
         errors: list[str] = []
+        done_count = 0
         with ThreadPoolExecutor(max_workers=len(keys)) as ex:
             futures = {
                 ex.submit(self._rewrite_platform, core, k, max_tokens, temperature): k
                 for k in keys
             }
-            for fut in futures:
+            for fut in as_completed(futures):
                 k = futures[fut]
                 try:
                     results[k] = fut.result()
                 except Exception as exc:
                     results[k] = core  # 兜底母稿，QA 会报 warning，绝不静默假成功
                     errors.append(f"{k} 改写失败，已兜底母稿：{exc}")
+                done_count += 1
+                rule = self.registry.platforms.get(k)
+                label = rule.name if rule else k
+                # 改写整体占 55→85%，按完成数均分
+                report(
+                    "rewrite",
+                    55 + int(30 * done_count / total),
+                    f"已改写 {done_count}/{total} 个平台（最新：{label}）",
+                )
         return results, errors
 
     def _enforce_content_rules(self, data: dict) -> tuple[dict[str, str], list[str]]:

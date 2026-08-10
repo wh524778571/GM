@@ -6,6 +6,7 @@ import { AppShell, Section } from "@/components/AppShell";
 import { Button } from "@/components/Button";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { DataSourceNote } from "@/components/DataSourceNote";
+import { GenerationProgress, type JobSnapshot } from "@/components/GenerationProgress";
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/clientApi";
 
 interface Topic {
@@ -72,6 +73,41 @@ const EMPTY_FORM: TopicForm = {
   viral_why: "",
 };
 
+/** 未完成的生成任务落 localStorage：切走再回来（甚至刷新）仍能接着看进度。 */
+const JOB_STORAGE_KEY = "guoman.writeJob";
+
+interface PersistedJob {
+  jobId: string;
+  topicId: number;
+  title: string;
+  startedAt: number;
+}
+
+function persistJob(v: PersistedJob) {
+  try {
+    window.localStorage.setItem(JOB_STORAGE_KEY, JSON.stringify(v));
+  } catch {
+    // localStorage 不可用（隐私模式等）不影响主流程，只是丢失跨页恢复能力
+  }
+}
+
+function readPersistedJob(): PersistedJob | null {
+  try {
+    const raw = window.localStorage.getItem(JOB_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as PersistedJob) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPersistedJob() {
+  try {
+    window.localStorage.removeItem(JOB_STORAGE_KEY);
+  } catch {
+    // 同上
+  }
+}
+
 export function TopicsScreen() {
   const router = useRouter();
   const pathname = usePathname();
@@ -91,6 +127,13 @@ export function TopicsScreen() {
   const [form, setForm] = useState<TopicForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // 生成任务（异步 + 轮询）状态
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [job, setJob] = useState<JobSnapshot | null>(null);
+  const [jobStartedAt, setJobStartedAt] = useState<number | null>(null);
+  const [writingTitle, setWritingTitle] = useState("");
+  const [progressOpen, setProgressOpen] = useState(false);
 
   const loadToday = useCallback(async () => {
     setLoading(true);
@@ -113,6 +156,76 @@ export function TopicsScreen() {
     void loadToday();
   }, [pathname, loadToday]);
 
+  // 进入本页时恢复未完成的生成任务（用户可能切走过或刷新过）
+  useEffect(() => {
+    const saved = readPersistedJob();
+    if (!saved) return;
+    setJobId(saved.jobId);
+    setJobStartedAt(saved.startedAt);
+    setWritingTitle(saved.title);
+    setWritingId(saved.topicId);
+    setProgressOpen(true);
+  }, []);
+
+  // 轮询任务进度：1.5s 一次（任务要跑数分钟，这个频率足够跟手又不压后端）
+  useEffect(() => {
+    if (!jobId) return;
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const snap = await apiGet<JobSnapshot>(`/jobs/${jobId}`);
+        if (cancelled) return;
+        setJob(snap);
+        if (snap.status === "done") {
+          clearPersistedJob();
+          const aid = snap.result?.article_id;
+          if (aid) {
+            setOk("草稿已生成，正在打开编辑器…");
+            router.push(`/writer?articleId=${aid}`);
+          } else {
+            setError("生成完成但未返回文章 ID");
+          }
+        } else if (snap.status === "error") {
+          clearPersistedJob();
+        }
+      } catch (e) {
+        if (cancelled) return;
+        // 404 = 后端重启导致内存任务丢失：明确告知并停止轮询，不无限转圈
+        const err = e as ApiError;
+        if (err.status === 404) {
+          clearPersistedJob();
+          setJob({
+            job_id: jobId ?? "",
+            kind: "topic_write",
+            status: "error",
+            stage: "error",
+            percent: 0,
+            message: "任务已失效",
+            error: { message: "任务已失效（后端可能重启过），请重新生成" },
+            elapsed_ms: 0,
+          });
+        }
+      }
+    }
+
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [jobId, router]);
+
+  // 任务终态后停止轮询：把 jobId 置空即可解绑上面的 interval
+  useEffect(() => {
+    if (job && job.status !== "running") {
+      setJobId(null);
+    }
+  }, [job]);
+
   async function generate() {
     setGenerating(true);
     setError(null);
@@ -134,19 +247,56 @@ export function TopicsScreen() {
     }
   }
 
+  /**
+   * 生成四平台草稿：走异步任务 + 进度轮询。
+   *
+   * 为什么不用同步 /write：整篇要跑 5 次 LLM 调用，实测 3–5 分钟。
+   * 同步请求期间界面毫无反馈，用户会以为卡死并重复点击。
+   */
   async function writeTopic(t: Topic) {
     setWritingId(t.id);
     setError(null);
     setOk(null);
+    setJob(null);
+    setProgressOpen(true);
+    const startedAt = Date.now();
+    setJobStartedAt(startedAt);
+    setWritingTitle(t.title);
     try {
-      const res = await apiPost<{ article_id: string }>(`/topics/${t.id}/write`);
-      const aid = res?.article_id;
-      if (!aid) throw new ApiError("未返回文章 ID", 500);
-      router.push(`/writer?articleId=${aid}`);
+      const res = await apiPost<{ job_id: string }>(`/topics/${t.id}/write-async`);
+      if (!res?.job_id) throw new ApiError("未返回任务 ID", 500);
+      setJobId(res.job_id);
+      persistJob({ jobId: res.job_id, topicId: t.id, title: t.title, startedAt });
     } catch (e) {
-      setError((e as ApiError).message || "写文章失败");
+      setProgressOpen(false);
       setWritingId(null);
+      setJobStartedAt(null);
+      setError((e as ApiError).message || "写文章失败");
     }
+  }
+
+  /** 关闭进度弹层但任务继续在后台跑（顶部横幅仍显示进度）。 */
+  function backgroundJob() {
+    setProgressOpen(false);
+  }
+
+  /** 关闭并彻底忘掉当前任务（用于失败/完成后收尾）。 */
+  function dismissJob() {
+    setProgressOpen(false);
+    setJobId(null);
+    setJob(null);
+    setJobStartedAt(null);
+    setWritingId(null);
+    clearPersistedJob();
+  }
+
+  function retryJob() {
+    const t = topics.find((x) => x.id === writingId);
+    clearPersistedJob();
+    setJobId(null);
+    setJob(null);
+    if (t) void writeTopic(t);
+    else setProgressOpen(false);
   }
 
   async function blacklistTopic(t: Topic) {
@@ -484,6 +634,37 @@ export function TopicsScreen() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {/* 生成进度弹层 */}
+      <GenerationProgress
+        open={progressOpen}
+        topicTitle={writingTitle}
+        job={job}
+        startedAt={jobStartedAt}
+        onBackground={backgroundJob}
+        onRetry={retryJob}
+        onDismiss={dismissJob}
+      />
+
+      {/* 转入后台后的常驻小横幅：任务还在跑，点一下能重新展开 */}
+      {!progressOpen && job?.status === "running" ? (
+        <button
+          type="button"
+          onClick={() => setProgressOpen(true)}
+          className="fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-card border border-subtle bg-card px-4 py-3 text-left shadow-xl hover:border-accent"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+          </span>
+          <span className="flex flex-col">
+            <span className="text-[13px] text-primary">
+              正在后台生成 · {job.percent}%
+            </span>
+            <span className="text-[12px] text-tertiary">{job.message}</span>
+          </span>
+        </button>
       ) : null}
 
       <DataSourceNote sources={["backend"]} />

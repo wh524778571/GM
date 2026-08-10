@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.api.routers.analytics import router as analytics_router
 from app.api.routers.articles import router as articles_router
 from app.api.routers.files import router as files_router
+from app.api.routers.jobs import router as jobs_router
 from app.api.routers.materials import router as materials_router
 from app.api.routers.publish import router as publish_router
 from app.api.routers.settings import router as settings_router
@@ -24,6 +25,7 @@ ROUTERS: tuple[APIRouter, ...] = (
     files_router,
     topics_router,
     settings_router,
+    jobs_router,
 )
 
 __all__ = ["ROUTERS"]
