@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import date as date_type
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,14 +23,17 @@ from app.api.schemas import (
     TopicGenerateResponse,
     TopicOut,
     TopicTodayResponse,
+    TopicUpdate,
     TopicWriteResponse,
 )
 from app.core.settings import settings
 from app.db.base import get_session
+from app.models.article import utcnow
 from app.models.topic_recommendation import TopicRecommendation
 from app.repositories.topic_repository import TopicRepository
 from app.services import topic_service
 from app.services.ai import AIConfigError, AIProviderError, GenerationError
+from app.services.topic_service import _neutralize_numbers, _norm_key
 
 router = APIRouter(tags=["topics"])
 
@@ -132,6 +137,63 @@ def topic_blacklist(
     if obj is None:
         raise HTTPException(404, f"选题不存在：{topic_id}")
     return TopicBlacklistResponse(id=obj.id, blacklisted=obj.blacklisted)
+
+
+@router.patch("/topics/{topic_id}", response_model=TopicOut)
+def topic_update(
+    topic_id: int, payload: TopicUpdate, session: Session = Depends(get_session)
+) -> TopicOut:
+    """编辑选题。标题变更会重算去重键；若与别的选题冲突返回 409。"""
+    repo = TopicRepository(session)
+    obj = repo.get(topic_id)
+    if obj is None:
+        raise HTTPException(404, f"选题不存在：{topic_id}")
+    today = _today()
+
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(422, "没有任何待更新字段")
+
+    # 标题变更 → 重算去重键，冲突则 409
+    if "title" in data:
+        clean = re.sub(r"[《》]", "", (data["title"] or "")).strip()
+        if not clean:
+            raise HTTPException(422, "title 不能为空")
+        new_key = _norm_key(clean)
+        if new_key != obj.topic_key:
+            collision = repo.get_by_key(new_key)
+            if collision is not None and collision.id != obj.id:
+                raise HTTPException(409, f"选题已存在（去重键冲突）：{collision.title}")
+        obj.topic_key = new_key
+        obj.title = _neutralize_numbers(clean)
+        data.pop("title")
+
+    if "viral_genes" in data:
+        genes = data["viral_genes"] or []
+        obj.viral_genes = json.dumps(genes, ensure_ascii=False)
+        data.pop("viral_genes")
+
+    if data.get("article_type") is not None and data["article_type"] not in ("depth", "info"):
+        raise HTTPException(422, "article_type 仅支持 depth | info")
+
+    for key, value in data.items():
+        if value is not None:
+            setattr(obj, key, value)
+
+    obj.updated_at = utcnow()
+    session.flush()
+    return _to_out(obj, today)
+
+
+@router.delete("/topics/{topic_id}", status_code=204)
+def topic_delete(topic_id: int, session: Session = Depends(get_session)) -> None:
+    """删除选题（硬删）。选题可重新生成，故不做软删；不存在返回 404。"""
+    repo = TopicRepository(session)
+    obj = repo.get(topic_id)
+    if obj is None:
+        raise HTTPException(404, f"选题不存在：{topic_id}")
+    session.delete(obj)
+    session.flush()
 
 
 @router.post("/topics/{topic_id}/write", response_model=TopicWriteResponse)

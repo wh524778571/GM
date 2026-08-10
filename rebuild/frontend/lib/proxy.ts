@@ -25,11 +25,15 @@ export async function proxyRequest(req: Request, backendPath: string): Promise<N
   try {
     const res = await fetch(target, init);
     const text = await res.text();
-    return new NextResponse(text, {
+    // 204/205/304 响应必须无 body：给 NextResponse 传任何 body（含空串）都会抛
+    // "Invalid response status code 204"。后端唯一返回 204 的是 DELETE 选题。
+    const noBody = res.status === 204 || res.status === 205 || res.status === 304;
+    return new NextResponse(noBody ? null : text, {
       status: res.status,
       headers: { "Content-Type": res.headers.get("content-type") ?? "application/json" },
     });
-  } catch {
+  } catch (err) {
+    console.error("[proxy] fetch to backend failed:", err);
     return NextResponse.json(
       { ok: false, error: "backend_unreachable", detail: "后端未启动或不可达，界面已回落基线数据" },
       { status: 503 },

@@ -374,6 +374,18 @@ class TopicBlacklistResponse(BaseModel):
     blacklisted: bool
 
 
+class TopicUpdate(BaseModel):
+    """编辑选题（全字段可选）。viral_genes 传字符串数组，落库时转 JSON 串。"""
+
+    title: str | None = Field(None, min_length=1, max_length=300)
+    topic_type: str | None = None
+    summary: str | None = None
+    angle: str | None = None
+    article_type: str | None = Field(None, description="depth | info")
+    viral_genes: list[str] | None = None
+    viral_why: str | None = None
+
+
 class TopicWriteResponse(BaseModel):
     article_id: str
     ok: bool

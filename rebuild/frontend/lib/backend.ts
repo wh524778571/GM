@@ -4,7 +4,9 @@ import "server-only";
  * 服务端唯一出口：所有后端调用都从这里走。
  * 浏览器永远只访问同源 /api/*，不直连 FastAPI —— 免 CORS，且任何密钥（如 ZHIPU_API_KEY）都留在后端。
  */
-export const BACKEND_BASE_URL = process.env.BACKEND_BASE_URL ?? "http://localhost:8000";
+// 后端以单进程 uvicorn 绑定 127.0.0.1:8000（IPv4）。默认指向 127.0.0.1 而非 localhost，
+// 避免 Node undici 把 localhost 先解析到 IPv6 ::1 导致偶发 ECONNREFUSED → 代理 503。
+export const BACKEND_BASE_URL = process.env.BACKEND_BASE_URL ?? "http://127.0.0.1:8000";
 
 const DEFAULT_TIMEOUT_MS = 2500;
 
