@@ -6,6 +6,7 @@ import {
   IconFolder,
   IconImage,
   IconPen,
+  IconSettings,
   IconSpark,
   type IconProps,
 } from "./icons";
@@ -25,4 +26,5 @@ export const NAV_ITEMS: NavEntry[] = [
   { href: "/analytics", label: "数据看板", icon: IconChart },
   { href: "/assets", label: "配图管理", icon: IconImage },
   { href: "/files", label: "项目文件", icon: IconFolder },
+  { href: "/settings", label: "设置", icon: IconSettings },
 ];

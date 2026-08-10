@@ -24,6 +24,11 @@ phase0-archive.sh
 *.zip
 
 # 本地产物
+
+# 本地用户配置（账号名/平台开关等，非密钥，随用户机器）
+rebuild/backend/config/user_settings.json
+
+# 本地产物
 rebuild/backend/uploads/
 rebuild/frontend/public/uploads/
 

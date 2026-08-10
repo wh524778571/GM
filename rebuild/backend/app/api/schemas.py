@@ -391,3 +391,46 @@ class TopicWriteResponse(BaseModel):
     ok: bool
     titles: dict[str, str]
     qa: dict[str, Any]
+
+
+# ─────────────────────────────────────────────────────────────
+# 设置（用户可编辑配置：账号名 / 平台开关 / 变现状态 / 偏好 / 密钥）
+# ─────────────────────────────────────────────────────────────
+class MonetizationOut(BaseModel):
+    """各平台变现 / 功能开通状态（对应待办清单）。"""
+    toutiao_original: bool = False  # 今日头条 · 原创标签
+    baijia_income: bool = False     # 百家号 · 收益开通
+    bilibili_creator: bool = False  # B站 · 创作激励
+    xhs_pgy: bool = False           # 小红书 · 蒲公英
+
+
+class PreferencesOut(BaseModel):
+    micro_post_min_interval_hours: int = Field(
+        2, ge=0, le=24, description="微头条最小发布间隔（小时），避免算法降权"
+    )
+
+
+class ApiKeyStatus(BaseModel):
+    key: str
+    label: str
+    configured: bool
+
+
+class UserSettingsOut(BaseModel):
+    accounts: dict[str, str] = Field(default_factory=dict)
+    platforms_enabled: dict[str, bool] = Field(default_factory=dict)
+    monetization: MonetizationOut = Field(default_factory=MonetizationOut)
+    preferences: PreferencesOut = Field(default_factory=PreferencesOut)
+    api_keys: list[ApiKeyStatus] = Field(default_factory=list)
+
+
+class UserSettingsUpdate(BaseModel):
+    accounts: dict[str, str] | None = None
+    platforms_enabled: dict[str, bool] | None = None
+    monetization: MonetizationOut | None = None
+    preferences: PreferencesOut | None = None
+
+
+class ApiKeyUpdate(BaseModel):
+    key: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1)

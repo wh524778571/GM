@@ -11,6 +11,7 @@ from app.api.routers.articles import router as articles_router
 from app.api.routers.files import router as files_router
 from app.api.routers.materials import router as materials_router
 from app.api.routers.publish import router as publish_router
+from app.api.routers.settings import router as settings_router
 from app.api.routers.tracking import router as tracking_router
 from app.api.routers.topics import router as topics_router
 
@@ -22,6 +23,7 @@ ROUTERS: tuple[APIRouter, ...] = (
     materials_router,
     files_router,
     topics_router,
+    settings_router,
 )
 
 __all__ = ["ROUTERS"]
