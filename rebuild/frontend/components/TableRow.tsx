@@ -69,7 +69,7 @@ export function TableRow({
   selected?: boolean;
   onToggleSelect?: () => void;
 }) {
-  const platform = PLATFORMS[row.platform];
+  const platforms = (row.platforms ?? []).map((k) => PLATFORMS[k]).filter(Boolean);
 
   return (
     <div
@@ -100,9 +100,20 @@ export function TableRow({
         <div className="truncate text-xs text-tertiary">{row.work}</div>
       </div>
 
-      <div className={`${TABLE_COLS.platform} flex items-center gap-2`}>
-        <span className={`h-2 w-2 shrink-0 rounded-pill ${platform.bg}`} />
-        <span className={`truncate text-[13px] ${platform.text}`}>{platform.name}</span>
+      <div className={`${TABLE_COLS.platform} flex items-center gap-1.5`}>
+        {row.platforms.map((k) => {
+          const p = PLATFORMS[k];
+          return (
+            <span
+              key={k}
+              className={`h-2 w-2 shrink-0 rounded-pill ${p.bg}`}
+              title={p.name}
+            />
+          );
+        })}
+        <span className="truncate text-[13px] text-secondary">
+          {row.platforms.length > 1 ? `${row.platforms.length}平台` : PLATFORMS[row.platforms[0]]?.name ?? "—"}
+        </span>
       </div>
 
       <div className={`${TABLE_COLS.views} text-[13px] tabular-nums text-primary`}>

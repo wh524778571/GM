@@ -5,16 +5,13 @@ export type PlatformKey = "toutiao" | "baijia" | "bilibili" | "xhs";
 export type ArticleStatus = "published" | "pending" | "draft" | "failed" | "deleted";
 
 export interface ArticleRow {
-  /** 业务唯一键 articles.article_id */
   articleId: string;
   title: string;
-  /** 作品名（凡人修仙传 / 沧元图 …），作为标题副信息展示 */
   work: string;
   status: ArticleStatus;
-  platform: PlatformKey;
-  /** 阅读量（tracking 汇总） */
+  /** 已有正文的平台列表（四平台文章显示全部四个，单平台显示一个） */
+  platforms: PlatformKey[];
   views: number;
-  /** YYYY-MM-DD */
   date: string;
 }
 

@@ -74,7 +74,7 @@ export function DashboardScreen({
         ) : (
           <div className="flex flex-wrap gap-gap4">
             {queue.map((item) => {
-              const platform = PLATFORMS[item.platform];
+              const platform = item.platforms?.length ? PLATFORMS[item.platforms[0]] : PLATFORMS.xhs;
               return (
                 <div
                   key={item.articleId}

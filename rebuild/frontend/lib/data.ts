@@ -18,6 +18,7 @@ import type {
   FileItem,
   Kpi,
   MaterialItem,
+  PlatformKey,
   ProjectFile,
   Sourced,
 } from "./types";
@@ -79,12 +80,6 @@ function toStatus(raw: string): ArticleStatus {
   return STATUS_MAP[raw] ?? "draft";
 }
 
-function firstKey(obj: Record<string, unknown> | null | undefined): string | undefined {
-  if (!obj) return undefined;
-  const keys = Object.keys(obj);
-  return keys.length > 0 ? keys[0] : undefined;
-}
-
 // ── 文章 ──────────────────────────────────────────────────────
 export async function getArticles(): Promise<Sourced<ArticleRow[]>> {
   const list = await backendGet<ArticleListResponse>("/articles?limit=50");
@@ -105,7 +100,7 @@ export async function getArticles(): Promise<Sourced<ArticleRow[]>> {
     title: a.title,
     work: a.folder_name ?? "国漫笔记",
     status: toStatus(a.status),
-    platform: normalizePlatform(firstKey(a.titles) ?? firstKey(a.publish_schedule)),
+    platforms: Object.keys(a.titles ?? {}) as PlatformKey[],
     views: viewsByArticle.get(a.article_id) ?? 0,
     date: (a.updated_at ?? a.created_at ?? "").slice(0, 10),
   }));

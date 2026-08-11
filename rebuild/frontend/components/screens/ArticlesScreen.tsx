@@ -16,7 +16,7 @@ import {
   clearArticleSelection,
   removeArticleSelection,
 } from "@/lib/articleSelection";
-import type { ArticleRow, ArticleStatus } from "@/lib/types";
+import type { ArticleRow, ArticleStatus, PlatformKey } from "@/lib/types";
 
 const FILTERS = [
   { key: "all", label: "全部" },
@@ -51,7 +51,7 @@ function normalize(items: ArticleItem[]): ArticleRow[] {
     title: a.title,
     work: a.folder_name ?? "国漫笔记",
     status: (a.status as ArticleStatus) ?? "draft",
-    platform: (Object.keys(a.titles ?? {})[0] ?? Object.keys(a.publish_schedule ?? {})[0] ?? "xhs") as ArticleRow["platform"],
+    platforms: Object.keys(a.titles ?? {}) as PlatformKey[],
     views: 0,
     date: (a.updated_at ?? a.created_at ?? "").slice(0, 10),
   }));
@@ -193,7 +193,7 @@ export function ArticlesScreen({
   function exportCsv() {
     const header = ["状态", "标题", "作品", "平台", "阅读量", "日期"];
     const lines = rows.map((r) =>
-      [r.status, `"${r.title.replace(/"/g, '""')}"`, r.work, PLATFORMS[r.platform].name, r.views, r.date].join(","),
+      [r.status, `"${r.title.replace(/"/g, '""')}"`, r.work, r.platforms.map(k => PLATFORMS[k].name).join("/"), r.views, r.date].join(","),
     );
     const csv = "﻿" + [header.join(","), ...lines].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
