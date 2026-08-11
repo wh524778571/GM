@@ -141,6 +141,84 @@ async def upload_material(
     )
 
 
+@router.patch("/materials/{material_id}")
+async def rename_material(
+    material_id: int,
+    stem: str = Form(..., description="新文件名（不含扩展名）"),
+    session: Session = Depends(get_session),
+) -> dict:
+    """重命名素材：更新 DB 记录 + 重命名磁盘文件。"""
+    root = settings.materials_root
+    if root is None:
+        raise HTTPException(503, {"code": "MATERIALS_ROOT_NOT_CONFIGURED", "message": "素材根目录未配置"})
+
+    mat = MaterialRepository(session).get(material_id)
+    if mat is None:
+        raise HTTPException(404, {"code": "NOT_FOUND", "message": "素材不存在"})
+
+    new_stem = _safe_component(stem, mat.stem)
+    old_path = root / mat.path
+    ext = Path(mat.path).suffix or Path(mat.filename).suffix or ".jpeg"
+    new_name = f"{new_stem}{ext}"
+    new_rel = str((old_path.parent / new_name).relative_to(root))
+    new_abs = root / new_rel
+
+    if new_abs.exists() and new_abs != old_path:
+        raise HTTPException(409, {"code": "NAME_CONFLICT", "message": f"目标文件名「{new_name}」已存在"})
+
+    if old_path.exists():
+        old_path.rename(new_abs)
+
+    mat.path = new_rel
+    mat.filename = new_name
+    mat.stem = new_stem
+    session.flush()
+
+    return {"id": mat.id, "stem": mat.stem, "path": mat.path, "renamed": True}
+
+
+@router.patch("/materials/{material_id}/replace")
+async def replace_material(
+    material_id: int,
+    file: UploadFile = File(..., description="新图片文件"),
+    session: Session = Depends(get_session),
+) -> dict:
+    """覆盖素材文件：保留 DB 记录，替换磁盘文件 + 更新尺寸/大小。"""
+    root = settings.materials_root
+    if root is None:
+        raise HTTPException(503, {"code": "MATERIALS_ROOT_NOT_CONFIGURED", "message": "素材根目录未配置"})
+
+    mat = MaterialRepository(session).get(material_id)
+    if mat is None:
+        raise HTTPException(404, {"code": "NOT_FOUND", "message": "素材不存在"})
+
+    blob = await file.read()
+    if not blob:
+        raise HTTPException(422, {"code": "EMPTY_FILE", "message": "上传内容为空"})
+    if len(blob) > MAX_BYTES:
+        raise HTTPException(422, {"code": "FILE_TOO_LARGE", "message": f"文件超过 {MAX_BYTES // 1024 // 1024} MB"})
+
+    target = root / mat.path
+    target.write_bytes(blob)
+    width, height = _read_dimensions(target)
+    stat = target.stat()
+
+    mat.size_bytes = stat.st_size
+    mat.width = width
+    mat.height = height
+    mat.mtime = int(stat.st_mtime)
+    session.flush()
+
+    return {
+        "id": mat.id,
+        "stem": mat.stem,
+        "width": width,
+        "height": height,
+        "size_bytes": stat.st_size,
+        "replaced": True,
+    }
+
+
 @router.delete("/materials/{material_id}", status_code=200)
 async def delete_material(
     material_id: int,

@@ -186,7 +186,7 @@ export function AssetsScreen({
   }
 
   /** 裁切保存：blob → FormData → POST /materials */
-  async function saveCropped(blob: Blob, filename: string) {
+  async function saveAsNew(blob: Blob, filename: string) {
     const fd = new FormData();
     fd.append("file", blob, filename);
     const work = editorItem?.work !== "未分类" ? (editorItem?.work ?? "") : "";
@@ -196,7 +196,30 @@ export function AssetsScreen({
       const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
       throw new Error(d?.detail?.message || "裁切保存失败");
     }
-    // 刷新列表
+    await loadByWork(activeWork);
+  }
+
+  /** 覆盖原图：blob → FormData → PATCH /materials/{id}/replace */
+  async function overwriteOriginal(blob: Blob, materialId: number) {
+    const fd = new FormData();
+    fd.append("file", blob, "replaced.jpg");
+    const res = await fetch(`/api/materials/${materialId}/replace`, { method: "PATCH", body: fd });
+    if (!res.ok) {
+      const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
+      throw new Error(d?.detail?.message || "覆盖失败");
+    }
+    await loadByWork(activeWork);
+  }
+
+  /** 重命名：PATCH /materials/{id} */
+  async function renameMaterial(materialId: number, newStem: string) {
+    const fd = new FormData();
+    fd.append("stem", newStem);
+    const res = await fetch(`/api/materials/${materialId}`, { method: "PATCH", body: fd });
+    if (!res.ok) {
+      const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
+      throw new Error(d?.detail?.message || "重命名失败");
+    }
     await loadByWork(activeWork);
   }
 
@@ -384,12 +407,15 @@ export function AssetsScreen({
         <ImageEditor
           src={editorItem.url}
           stem={editorItem.stem}
+          materialId={Number(editorItem.id)}
           width={editorInfo.width}
           height={editorInfo.height}
           format={editorInfo.format}
           sizeBytes={editorInfo.sizeBytes}
           onClose={() => setEditorItem(null)}
-          onSaveCropped={saveCropped}
+          onSaveAsNew={saveAsNew}
+          onOverwrite={overwriteOriginal}
+          onRename={renameMaterial}
           onCopyPath={(s) => {
             navigator.clipboard.writeText(s).catch(() => {});
             setOk(`已复制路径「${s}」`);

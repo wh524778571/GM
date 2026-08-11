@@ -7,12 +7,15 @@ import { ButtonSecondary } from "@/components/ButtonSecondary";
 interface ImageEditorProps {
   src: string;
   stem: string;
+  materialId: number;
   width?: number;
   height?: number;
   format?: string;
   sizeBytes?: number;
   onClose: () => void;
-  onSaveCropped: (blob: Blob, filename: string) => Promise<void>;
+  onSaveAsNew: (blob: Blob, filename: string) => Promise<void>;
+  onOverwrite: (blob: Blob, materialId: number) => Promise<void>;
+  onRename: (materialId: number, newStem: string) => Promise<void>;
   onCopyPath: (stem: string) => void;
   onDelete?: () => void;
 }
@@ -25,19 +28,23 @@ function fmtSize(bytes: number): string {
 
 export function ImageEditor({
   src,
-  stem,
+  stem: initialStem,
+  materialId,
   width,
   height,
   format,
   sizeBytes,
   onClose,
-  onSaveCropped,
+  onSaveAsNew,
+  onOverwrite,
+  onRename,
   onCopyPath,
   onDelete,
 }: ImageEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const [mode, setMode] = useState<"view" | "crop">("view");
+  const [stem, setStem] = useState(initialStem);
+  const [mode, setMode] = useState<"view" | "crop" | "saveDialog" | "rename">("view");
   const [cropping, setCropping] = useState(false);
   const [cropRect, setCropRect] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -45,7 +52,16 @@ export function ImageEditor({
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // load image and draw
+  // save dialog state
+  const [saveMode, setSaveMode] = useState<"overwrite" | "new">("new");
+  const [saveName, setSaveName] = useState("");
+  const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
+
+  // rename state
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
+
+  // load image
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -70,24 +86,21 @@ export function ImageEditor({
     ctx.drawImage(img, 0, 0, c.width, c.height);
   }
 
-  function drawCropOverlay(c: HTMLCanvasElement, img: HTMLImageElement, s: number) {
+  function drawCropOverlay(c: HTMLCanvasElement, img: HTMLImageElement) {
     const ctx = c.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(img, 0, 0, c.width, c.height);
-    // darken outside crop rect
     const { x, y, w, h } = cropRect;
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.fillRect(0, 0, c.width, y);
     ctx.fillRect(0, y + h, c.width, c.height - y - h);
     ctx.fillRect(0, y, x, h);
     ctx.fillRect(x + w, y, c.width - x - w, h);
-    // border
     ctx.strokeStyle = "#E5484D";
     ctx.lineWidth = 2;
     ctx.strokeRect(x, y, w, h);
-    // size label
-    const realW = Math.round(w / s);
-    const realH = Math.round(h / s);
+    const realW = Math.round(w / scale);
+    const realH = Math.round(h / scale);
     ctx.fillStyle = "rgba(0,0,0,0.75)";
     const label = `${realW} × ${realH}`;
     const m = ctx.measureText(label);
@@ -104,16 +117,13 @@ export function ImageEditor({
     const img = imgRef.current;
     if (!c || !img) return;
     if (mode === "crop" && cropRect.w > 10) {
-      drawCropOverlay(c, img, scale);
+      drawCropOverlay(c, img);
     } else {
       drawView(c, img, scale);
     }
   }, [mode, cropRect, scale]);
 
-  // redraw when mode/crop change
-  useEffect(() => {
-    redraw();
-  }, [redraw]);
+  useEffect(() => { redraw(); }, [redraw]);
 
   function getCanvasPos(e: React.MouseEvent<HTMLCanvasElement>) {
     const c = canvasRef.current!;
@@ -133,82 +143,174 @@ export function ImageEditor({
     if (!cropping || mode !== "crop") return;
     const { x, y } = getCanvasPos(e);
     const c = canvasRef.current!;
-    const x1 = Math.max(0, Math.min(dragStart.x, x));
-    const y1 = Math.max(0, Math.min(dragStart.y, y));
-    const x2 = Math.min(c.width, Math.max(dragStart.x, x));
-    const y2 = Math.min(c.height, Math.max(dragStart.y, y));
-    setCropRect({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+    setCropRect({
+      x: Math.max(0, Math.min(dragStart.x, x)),
+      y: Math.max(0, Math.min(dragStart.y, y)),
+      w: Math.abs(x - dragStart.x),
+      h: Math.abs(y - dragStart.y),
+    });
   }
 
-  function handleMouseUp() {
-    setCropping(false);
-  }
+  function handleMouseUp() { setCropping(false); }
 
-  async function doCrop() {
+  /** 裁切选区 → blob，弹出保存选项 */
+  function doCrop() {
     if (cropRect.w < 20 || cropRect.h < 20) {
-      setMsg("选区太小，请重新框选");
-      return;
+      setMsg("选区太小，请重新框选"); return;
     }
+    const c = document.createElement("canvas");
+    const realX = Math.round(cropRect.x / scale);
+    const realY = Math.round(cropRect.y / scale);
+    const realW = Math.round(cropRect.w / scale);
+    const realH = Math.round(cropRect.h / scale);
+    c.width = realW;
+    c.height = realH;
+    c.getContext("2d")!.drawImage(imgRef.current!, realX, realY, realW, realH, 0, 0, realW, realH);
+    c.toBlob((b) => {
+      if (!b) { setMsg("裁切失败：Canvas 导出为空"); return; }
+      setCroppedBlob(b);
+      setSaveMode("new");
+      setSaveName(stem.replace(/\.[^.]+$/, "") + "_裁切");
+      setMode("saveDialog");
+      setMsg(null);
+    }, "image/jpeg", 0.92);
+  }
+
+  /** 执行保存 */
+  async function commitSave() {
+    if (!croppedBlob) return;
     setSaving(true);
     setMsg(null);
     try {
-      const c = document.createElement("canvas");
-      const realX = Math.round(cropRect.x / scale);
-      const realY = Math.round(cropRect.y / scale);
-      const realW = Math.round(cropRect.w / scale);
-      const realH = Math.round(cropRect.h / scale);
-      c.width = realW;
-      c.height = realH;
-      const ctx = c.getContext("2d")!;
-      ctx.drawImage(imgRef.current!, realX, realY, realW, realH, 0, 0, realW, realH);
-      const blob = await new Promise<Blob>((res) => c.toBlob((b) => res(b!), "image/jpeg", 0.92));
-      // generate filename: stem + _crop suffix
-      const base = stem.replace(/\.[^.]+$/, "");
-      const filename = `${base}_裁切.jpg`;
-      await onSaveCropped(blob, filename);
-      setMsg("✓ 裁切已保存为新素材");
+      if (saveMode === "overwrite") {
+        await onOverwrite(croppedBlob, materialId);
+        setMsg("✓ 已覆盖原图");
+      } else {
+        const name = saveName.trim() || stem;
+        await onSaveAsNew(croppedBlob, `${name}.jpg`);
+        setMsg(`✓ 已另存为「${name}.jpg」`);
+      }
       setMode("view");
       setCropRect({ x: 0, y: 0, w: 0, h: 0 });
+      setCroppedBlob(null);
     } catch (e) {
-      setMsg(`裁切失败: ${e instanceof Error ? e.message : "未知错误"}`);
+      setMsg(`保存失败: ${e instanceof Error ? e.message : "未知错误"}`);
     } finally {
       setSaving(false);
     }
   }
 
+  /** 执行重命名 */
+  async function commitRename() {
+    const v = renameValue.trim();
+    if (!v || v === stem) { setMode("view"); return; }
+    setRenaming(true);
+    setMsg(null);
+    try {
+      await onRename(materialId, v);
+      setStem(v);
+      setMsg("✓ 已重命名");
+      setMode("view");
+    } catch (e) {
+      setMsg(`重命名失败: ${e instanceof Error ? e.message : "未知错误"}`);
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  // ── render ──
+  const header = (
+    <div className="flex items-center gap-3 border-b border-subtle px-5 py-3">
+      <h3 className="truncate text-[15px] font-semibold text-primary">{stem}</h3>
+      <div className="ml-auto flex items-center gap-2">
+        {mode === "view" ? (
+          <>
+            <ButtonSecondary className="h-7 text-xs px-3" onClick={() => setMode("crop")}>裁切</ButtonSecondary>
+            <ButtonSecondary className="h-7 text-xs px-3" onClick={() => { setRenameValue(stem); setMode("rename"); }}>重命名</ButtonSecondary>
+          </>
+        ) : mode === "rename" ? (
+          <>
+            <ButtonSecondary className="h-7 text-xs px-3" onClick={() => setMode("view")}>取消</ButtonSecondary>
+            <Button className="h-7 text-xs px-3" onClick={commitRename} disabled={renaming}>{renaming ? "…" : "确认"}</Button>
+          </>
+        ) : mode === "crop" ? (
+          <>
+            <ButtonSecondary className="h-7 text-xs px-3" onClick={() => { setMode("view"); setCropRect({ x: 0, y: 0, w: 0, h: 0 }); }}>取消裁切</ButtonSecondary>
+            <Button className="h-7 text-xs px-3" onClick={doCrop}>确认裁切</Button>
+          </>
+        ) : null}
+        <button className="ml-2 text-lg text-tertiary hover:text-primary transition" onClick={onClose} title="关闭">✕</button>
+      </div>
+    </div>
+  );
+
+  const infoBar = (
+    <div className="flex flex-wrap items-center gap-3 border-t border-subtle px-5 py-2.5 text-xs text-tertiary">
+      {width && height ? <span>{width} × {height}</span> : null}
+      {format ? <span className="uppercase">{format}</span> : null}
+      {sizeBytes ? <span>{fmtSize(sizeBytes)}</span> : null}
+      {mode === "crop" && cropRect.w > 10 ? (
+        <span className="text-accent">选区 {Math.round(cropRect.w / scale)} × {Math.round(cropRect.h / scale)}</span>
+      ) : null}
+      {msg ? <span className={msg.startsWith("✓") ? "text-success" : "text-plat-toutiao"}>{msg}</span> : null}
+      <div className="ml-auto flex gap-2">
+        <ButtonSecondary className="h-7 text-xs px-2" onClick={() => { navigator.clipboard.writeText(stem); onCopyPath(stem); }}>复制路径</ButtonSecondary>
+        {onDelete ? <ButtonSecondary className="h-7 text-xs px-2 text-plat-toutiao" onClick={onDelete}>删除</ButtonSecondary> : null}
+      </div>
+    </div>
+  );
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="flex max-h-[90vh] w-full max-w-[960px] flex-col rounded-lg border border-subtle bg-card shadow-2xl">
-        {/* header */}
-        <div className="flex items-center gap-3 border-b border-subtle px-5 py-3">
-          <h3 className="truncate text-[15px] font-semibold text-primary">{stem}</h3>
-          <div className="ml-auto flex items-center gap-2">
-            {mode === "view" ? (
-              <ButtonSecondary className="h-7 text-xs px-3" onClick={() => setMode("crop")}>
-                裁切
-              </ButtonSecondary>
-            ) : (
-              <>
-                <ButtonSecondary className="h-7 text-xs px-3" onClick={() => { setMode("view"); setCropRect({ x: 0, y: 0, w: 0, h: 0 }); }}>
-                  取消裁切
-                </ButtonSecondary>
-                <Button className="h-7 text-xs px-3" onClick={doCrop} disabled={saving}>
-                  {saving ? "保存中…" : "确认裁切"}
-                </Button>
-              </>
-            )}
-            <button
-              className="ml-2 text-lg text-tertiary hover:text-primary transition"
-              onClick={onClose}
-              title="关闭"
-            >
-              ✕
-            </button>
+        {header}
+
+        {/* rename input */}
+        {mode === "rename" ? (
+          <div className="flex items-center gap-3 border-b border-subtle px-5 py-3">
+            <span className="text-xs text-tertiary whitespace-nowrap">新名称（不含扩展名）</span>
+            <input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setMode("view"); }}
+              className="h-8 flex-1 rounded-btn border border-subtle bg-raised px-3 text-[13px] text-primary focus:border-accent focus:outline-none"
+              autoFocus
+            />
           </div>
-        </div>
+        ) : null}
+
+        {/* save dialog */}
+        {mode === "saveDialog" ? (
+          <div className="flex flex-col gap-3 border-b border-subtle px-5 py-4">
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-[13px] text-primary cursor-pointer">
+                <input type="radio" name="saveMode" checked={saveMode === "overwrite"} onChange={() => setSaveMode("overwrite")} className="accent-[#E5484D]" />
+                覆盖原图
+              </label>
+              <label className="flex items-center gap-2 text-[13px] text-primary cursor-pointer">
+                <input type="radio" name="saveMode" checked={saveMode === "new"} onChange={() => setSaveMode("new")} className="accent-[#E5484D]" />
+                另存为新图片
+              </label>
+            </div>
+            {saveMode === "new" ? (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-tertiary whitespace-nowrap">文件名</span>
+                <input
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  className="h-8 flex-1 rounded-btn border border-subtle bg-raised px-3 text-[13px] text-primary focus:border-accent focus:outline-none"
+                />
+                <span className="text-xs text-tertiary whitespace-nowrap">.jpg</span>
+              </div>
+            ) : (
+              <p className="text-xs text-plat-toutiao">⚠ 覆盖后原图将被替换，不可恢复</p>
+            )}
+            <div className="flex gap-2">
+              <Button className="h-8 text-xs px-4" onClick={commitSave} disabled={saving}>{saving ? "保存中…" : "确认保存"}</Button>
+              <ButtonSecondary className="h-8 text-xs px-4" onClick={() => { setMode("crop"); setCroppedBlob(null); }}>返回裁切</ButtonSecondary>
+            </div>
+          </div>
+        ) : null}
 
         {/* canvas */}
         <div className="flex min-h-0 flex-1 items-center justify-center bg-[#0a0a0c] p-2">
@@ -223,32 +325,7 @@ export function ImageEditor({
           />
         </div>
 
-        {/* footer info bar */}
-        <div className="flex flex-wrap items-center gap-3 border-t border-subtle px-5 py-2.5 text-xs text-tertiary">
-          {width && height ? <span>{width} × {height}</span> : null}
-          {format ? <span className="uppercase">{format}</span> : null}
-          {sizeBytes ? <span>{fmtSize(sizeBytes)}</span> : null}
-          {mode === "crop" && cropRect.w > 10 ? (
-            <span className="text-accent ml-auto">
-              选区 {Math.round(cropRect.w / scale)} × {Math.round(cropRect.h / scale)}
-            </span>
-          ) : null}
-          {msg ? (
-            <span className={msg.startsWith("✓") ? "text-success" : "text-plat-toutiao"}>
-              {msg}
-            </span>
-          ) : null}
-          <div className="ml-auto flex gap-2">
-            <ButtonSecondary className="h-7 text-xs px-2" onClick={() => { navigator.clipboard.writeText(stem); onCopyPath(stem); }}>
-              复制路径
-            </ButtonSecondary>
-            {onDelete ? (
-              <ButtonSecondary className="h-7 text-xs px-2 text-plat-toutiao" onClick={onDelete}>
-                删除
-              </ButtonSecondary>
-            ) : null}
-          </div>
-        </div>
+        {infoBar}
       </div>
     </div>
   );

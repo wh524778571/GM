@@ -8,3 +8,10 @@ export async function DELETE(
 ) {
   return proxyRequest(req, `/materials/${params.id}`);
 }
+
+export async function PATCH(
+  req: Request,
+  { params }: { params: { id: string } },
+) {
+  return proxyRequest(req, `/materials/${params.id}`);
+}
