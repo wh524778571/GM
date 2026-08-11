@@ -15,6 +15,61 @@ import type { DataSource, Kpi, MaterialItem } from "@/lib/types";
 
 const PAGE_SIZE = 48;
 
+/** 分页条：上一页 / 页码 1 2 3 ... / 下一页 / 跳转输入 */
+function PaginationBar({ page, total, onGo, disabled }: { page: number; total: number; onGo: (p: number) => void; disabled: boolean }) {
+  const [jump, setJump] = useState("");
+
+  // 生成页码列表：当前页 ±2，首尾固定
+  const pages: (number | "...")[] = [];
+  const radius = 2;
+  const start = Math.max(2, page - radius);
+  const end = Math.min(total - 1, page + radius);
+
+  pages.push(1);
+  if (start > 2) pages.push("...");
+  for (let i = start; i <= end; i++) pages.push(i);
+  if (end < total - 1) pages.push("...");
+  if (total > 1) pages.push(total);
+
+  function doJump() {
+    const n = parseInt(jump, 10);
+    if (n >= 1 && n <= total) { onGo(n); setJump(""); }
+  }
+
+  const btn = "h-8 min-w-[32px] rounded-btn border border-subtle text-xs text-secondary hover:border-accent hover:text-accent disabled:opacity-40 transition";
+
+  return (
+    <div className="mt-4 flex items-center justify-center gap-1.5">
+      <button className={btn} onClick={() => onGo(page - 1)} disabled={disabled || page <= 1}>上一页</button>
+      {pages.map((p, i) =>
+        p === "..." ? (
+          <span key={`dot-${i}`} className="px-1 text-xs text-tertiary">…</span>
+        ) : (
+          <button
+            key={p}
+            className={`${btn} ${p === page ? "border-accent bg-accent/10 text-accent font-semibold" : ""}`}
+            onClick={() => onGo(p)}
+            disabled={disabled}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <button className={btn} onClick={() => onGo(page + 1)} disabled={disabled || page >= total}>下一页</button>
+      <span className="ml-3 text-xs text-tertiary">跳至</span>
+      <input
+        value={jump}
+        onChange={(e) => setJump(e.target.value.replace(/\D/g, ""))}
+        onKeyDown={(e) => { if (e.key === "Enter") doJump(); }}
+        placeholder={`${total}`}
+        className="h-8 w-12 rounded-btn border border-subtle bg-raised px-2 text-center text-xs text-primary focus:border-accent focus:outline-none"
+      />
+      <span className="text-xs text-tertiary">页</span>
+      <button className={btn} onClick={doJump} disabled={disabled || !jump}>跳转</button>
+    </div>
+  );
+}
+
 interface MaterialOut {
   id: number;
   stem: string;
@@ -90,8 +145,8 @@ export function AssetsScreen({
 
   // 分页
   const [total, setTotal] = useState(initialMaterials.length);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // 图片编辑器
   const [editorItem, setEditorItem] = useState<MaterialItem | null>(null);
@@ -103,43 +158,41 @@ export function AssetsScreen({
   const [impEpisode, setImpEpisode] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const loadByWork = useCallback(async (work: string | null, offset = 0, append = false) => {
+  const loadByWork = useCallback(async (work: string | null, offset = 0) => {
     setBusy(true);
     setError(null);
-    if (!append) { setKeywords([]); setQuery(""); }
+    setKeywords([]);
+    setQuery("");
     try {
       const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset), source: "library" });
       if (work) qs.set("work", work);
       const res = await apiGet<MaterialListResponse>(`/materials?${qs.toString()}`);
-      const newItems = fromList(res.items ?? []);
-      if (append) {
-        setItems((prev) => [...prev, ...newItems]);
-      } else {
-        setItems(newItems);
-      }
-      const t = res.total_indexed ?? newItems.length;
-      setTotal(t);
-      setHasMore(offset + newItems.length < t);
+      setItems(fromList(res.items ?? []));
+      setTotal(res.total_indexed ?? 0);
       setLive(true);
     } catch (e) {
       setError((e as ApiError).message || "素材读取失败");
     } finally {
       setBusy(false);
-      setLoadingMore(false);
     }
   }, []);
 
-  async function loadMore() {
-    if (loadingMore || !hasMore || busy) return;
-    setLoadingMore(true);
-    const nextOffset = items.length;
-    await loadByWork(activeWork, nextOffset, true);
-  }
+  const goToPage = useCallback((p: number, work: string | null) => {
+    const clamped = Math.max(1, Math.min(totalPages, p));
+    setPage(clamped);
+    loadByWork(work, (clamped - 1) * PAGE_SIZE);
+  }, [totalPages, loadByWork]);
+
+  /** 切换筛选 → 回到第一页 */
+  const refreshPage1 = useCallback((work: string | null) => {
+    setPage(1);
+    loadByWork(work, 0);
+  }, [loadByWork]);
 
   const search = useCallback(async (q: string) => {
     const term = q.trim();
     if (!term) {
-      await loadByWork(null);
+      await refreshPage1(null);
       setActiveWork(null);
       return;
     }
@@ -216,7 +269,7 @@ export function AssetsScreen({
       const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
       throw new Error(d?.detail?.message || "裁切保存失败");
     }
-    await loadByWork(activeWork);
+    await refreshPage1(activeWork);
   }
 
   /** 覆盖原图：blob → FormData → PATCH /materials/{id}/replace */
@@ -228,7 +281,7 @@ export function AssetsScreen({
       const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
       throw new Error(d?.detail?.message || "覆盖失败");
     }
-    await loadByWork(activeWork);
+    await refreshPage1(activeWork);
   }
 
   /** 重命名：PATCH /materials/{id} */
@@ -240,7 +293,7 @@ export function AssetsScreen({
       const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
       throw new Error(d?.detail?.message || "重命名失败");
     }
-    await loadByWork(activeWork);
+    await refreshPage1(activeWork);
   }
 
   async function doImport() {
@@ -277,7 +330,7 @@ export function AssetsScreen({
       setOk(`已导入 ${saved.stem}${saved.url ? "" : "（未生成可访问地址）"}`);
       setShowImport(false);
       if (fileRef.current) fileRef.current.value = "";
-      await loadByWork(activeWork);
+      await refreshPage1(activeWork);
     } catch (e) {
       setError(e instanceof Error ? e.message : "导入失败");
     } finally {
@@ -419,15 +472,7 @@ export function AssetsScreen({
                 />
               ))}
             </div>
-            {hasMore ? (
-              <div className="mt-4 flex justify-center">
-                <ButtonSecondary onClick={loadMore} disabled={loadingMore} className="px-8">
-                  {loadingMore ? "加载中…" : `加载更多（已显示 ${items.length}/${total}）`}
-                </ButtonSecondary>
-              </div>
-            ) : items.length > PAGE_SIZE ? (
-              <p className="mt-4 text-center text-xs text-tertiary">已加载全部 {total} 条素材</p>
-            ) : null}
+            {totalPages > 1 ? <PaginationBar page={page} total={totalPages} onGo={(p) => goToPage(p, activeWork)} disabled={busy} /> : null}
           </>
         )}
       </Section>
