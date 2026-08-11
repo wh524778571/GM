@@ -8,6 +8,7 @@ import { toImageProxyUrl } from "@/lib/media";
 
 interface PickerMaterial {
   id: number;
+  path: string | null;
   stem: string;
   work: string | null;
   scene: string | null;
@@ -25,9 +26,11 @@ export function MaterialPicker({
   open: boolean;
   initialQuery?: string;
   onClose: () => void;
-  onPick: (m: { id: number; stem: string; url: string | null }) => void;
+  onPick: (m: { id: number; path: string | null; stem: string; url: string | null }) => void;
 }) {
   const [items, setItems] = useState<PickerMaterial[]>([]);
+  const [works, setWorks] = useState<{ work: string; count: number }[]>([]);
+  const [activeWork, setActiveWork] = useState<string | null>(null);
   const [q, setQ] = useState(initialQuery ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +39,20 @@ export function MaterialPicker({
     if (open) setQ(initialQuery ?? "");
   }, [open, initialQuery]);
 
+  // 打开时拉一次作品分类（用于筛选 chips）
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    apiGet<{ works: { work: string; count: number }[] }>(`/materials/works`)
+      .then((r) => alive && setWorks(r.works ?? []))
+      .catch(() => {
+        /* 分类拉不到不影响主列表 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -43,6 +60,7 @@ export function MaterialPicker({
     setError(null);
     const qs = new URLSearchParams({ source: "library", limit: "60" });
     if (q.trim()) qs.set("keyword", q.trim());
+    if (activeWork) qs.set("work", activeWork);
     apiGet<{ items: PickerMaterial[] }>(`/materials?${qs.toString()}`)
       .then((r) =>
         alive &&
@@ -55,7 +73,7 @@ export function MaterialPicker({
     return () => {
       alive = false;
     };
-  }, [open, q]);
+  }, [open, q, activeWork]);
 
   if (!open) return null;
 
@@ -80,6 +98,38 @@ export function MaterialPicker({
             关闭
           </ButtonSecondary>
         </div>
+        {works.length > 1 ? (
+          <div className="flex flex-wrap gap-2 border-b border-subtle px-4 py-3">
+            <button
+              type="button"
+              onClick={() => setActiveWork(null)}
+              className={
+                "h-8 rounded-full px-3 text-[12px] transition " +
+                (activeWork === null
+                  ? "bg-accent text-white"
+                  : "border border-subtle bg-raised text-secondary hover:border-accent")
+              }
+            >
+              全部
+            </button>
+            {works.map((w) => (
+              <button
+                key={w.work}
+                type="button"
+                onClick={() => setActiveWork(w.work)}
+                className={
+                  "h-8 rounded-full px-3 text-[12px] transition " +
+                  (activeWork === w.work
+                    ? "bg-accent text-white"
+                    : "border border-subtle bg-raised text-secondary hover:border-accent")
+                }
+              >
+                {w.work}
+                <span className="ml-1 opacity-60">{w.count}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-gap4 overflow-y-auto p-4">
           {busy ? (
             <div className="text-[13px] text-tertiary">读取中…</div>
@@ -99,7 +149,7 @@ export function MaterialPicker({
                   episode: m.episode,
                   url: m.url,
                 }}
-                onClick={() => onPick({ id: m.id, stem: m.stem, url: m.url })}
+                onClick={() => onPick({ id: m.id, path: m.path, stem: m.stem, url: m.url })}
               />
             ))
           )}

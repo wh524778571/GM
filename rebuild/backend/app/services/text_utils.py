@@ -13,8 +13,29 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 
 from app.services.lexicon import LEXICON
+
+# 移除 emoji / 装饰性符号（🔥✨💡📌 等），强迫用排版（## 小标题、**加粗**、序号、引用）分层。
+# 覆盖：emoji & pictographs(1F000–1FAFF)、区域指示符(1F1E6–1F1FF)、dingbats(2700–27BF)、
+# 杂项符号(2600–26FF)、杂项符号与箭头(2B00–2BFF)、变体选择符(FE00–FE0F)、零宽连字(200D)。
+# 刻意不覆盖：·(00B7) …(2026) —(2014) →(2192) 等中文/排版标点（属正常排版字符）。
+_EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\U0001F1E6-\U0001F1FF"
+    "\U00002600-\U000027BF\U00002B00-\U00002BFF"
+    "\U0000FE00-\U0000FE0F\U0000200D]"
+)
+
+
+def strip_emoji(text: str) -> str:
+    """去掉正文里的 emoji / 装饰符号，保留中文、标点与排版字符（· … — → 等）。
+
+    即使模型无视 prompt 塞了 🔥🔥🔥，生成/润色产物也强制干净。
+    """
+    if not text:
+        return text
+    return _EMOJI_RE.sub("", text)
 
 _SUFFIXES = (
     "场景截图", "截图", "名场面合集截图", "场景合图", "台词",

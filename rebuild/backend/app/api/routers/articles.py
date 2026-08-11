@@ -37,6 +37,7 @@ from app.repositories.article_repository import ArticleRepository
 from app.repositories.material_repository import MaterialRepository
 from app.services.image_matching.matcher import ImageMatcherService
 from app.services import qa
+from app.services.text_utils import strip_emoji
 from app.services.ai import (
     AIConfigError,
     AIProviderError,
@@ -271,7 +272,7 @@ POLISH_INSTRUCTION = """你是一位资深国漫自媒体编辑，请对下面�
 - 节奏：长短句交错，别每一段都一个样长；段落结尾换着法子收，别老用总结句收尾。
 - 有观点：对内容做出反应，可以有锋芒、可以吐槽、可以犹豫，别只做中立报道。
 - 第一人称：适当用「我」「我觉得」，像朋友在饭桌上聊番，别写成新闻稿。
-- 表情符号：除非原文就有，否则不要加 emoji。
+- 表情符号：无论原稿有没有，都不要加任何 emoji（🔥✨💡📌 等一律删除）；若原稿带 emoji，润色时一并去掉，用 ## 小标题、**加粗**、序号、引用（>）等排版代替，不靠表情符号分层。
 - 引号：用中文引号「」或""，别用弯引号 ""。
 
 【语气】轻松一点、带点幽默，像跟朋友聊刚看完的番；有钩子、有悬念，但别标题党。
@@ -322,6 +323,7 @@ def polish_article(
             max_tokens=settings.ai_max_tokens,
             temperature=settings.ai_temperature,
         ).strip()
+        polished = strip_emoji(polished)
     except AIProviderError as exc:
         raise HTTPException(502, exc.to_dict()) from exc
 

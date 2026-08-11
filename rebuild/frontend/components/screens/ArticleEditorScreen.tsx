@@ -365,6 +365,7 @@ export function ArticleEditorScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [stat, setStat] = useState({ imgs: 0, slots: 0, chars: 0 });
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const texts = useRef<Record<string, string>>({});
   const imgMap = useRef<ImgMap>({});
@@ -651,10 +652,18 @@ export function ArticleEditorScreen() {
     return (nums.length ? Math.max(...nums) : 0) + 1;
   }
 
-  function handlePick(m: { id: number; stem: string; url: string | null }) {
+  function handlePick(m: { id: number; path: string | null; stem: string; url: string | null }) {
     const el = editorRef.current;
     if (!el) return;
-    const stem = m.stem.startsWith("/") ? m.stem : `/images/${m.stem}`;
+    // 用相对 path 拼可解析的图片地址：_素材库/作品/xxx.jpeg → /images/... → /api/images/...
+    // （与后端 bind_image 端点一致；裸 stem 缺前缀和扩展名会 404，是之前不出图的根因）
+    const stem = m.path
+      ? m.path
+      : m.url
+        ? m.url
+        : m.stem.startsWith("/")
+          ? m.stem
+          : `/images/${m.stem}`;
     const { mode, el: targetEl } = pending.current;
 
     if (mode === "cursor" || !targetEl) {
@@ -718,6 +727,7 @@ export function ArticleEditorScreen() {
 
     // 图片内联成 base64，粘到平台编辑器才能直出
     const imgs = Array.from(box.querySelectorAll("img"));
+    setBusyAction("复制");
     setBusy(true);
     await Promise.all(
       imgs.map(async (img) => {
@@ -727,6 +737,7 @@ export function ArticleEditorScreen() {
       }),
     );
     setBusy(false);
+    setBusyAction(null);
 
     box.querySelectorAll("figure").forEach((f) => f.removeAttribute("class"));
     const html = box.innerHTML;
@@ -759,6 +770,7 @@ export function ArticleEditorScreen() {
   async function humanize() {
     if (!effectiveId.current) return;
     captureCurrent();
+    setBusyAction("去AI味");
     setBusy(true);
     setError(null);
     try {
@@ -774,11 +786,13 @@ export function ArticleEditorScreen() {
       setErr((e as ApiError).message || "去AI味失败");
     } finally {
       setBusy(false);
+      setBusyAction(null);
     }
   }
 
   async function regenerateTitles() {
     if (!effectiveId.current) return;
+    setBusyAction("标题");
     setBusy(true);
     setError(null);
     try {
@@ -790,6 +804,7 @@ export function ArticleEditorScreen() {
       setErr((e as ApiError).message || "重生成标题失败");
     } finally {
       setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -837,7 +852,7 @@ export function ArticleEditorScreen() {
 
       <div className="flex flex-wrap items-center gap-2 rounded-card border border-subtle bg-card px-4 py-3">
         <Button className="h-9" onClick={() => void copyPlatform(active)} disabled={busy}>
-          {busy ? "处理中…" : `复制「${activeLabel}」图文`}
+          {busyAction === "复制" ? "复制中…" : `复制「${activeLabel}」图文`}
         </Button>
         <ButtonSecondary className="h-9" onClick={() => void flushSave()}>
           保存
@@ -846,12 +861,15 @@ export function ArticleEditorScreen() {
           在光标处插图
         </ButtonSecondary>
         <ButtonSecondary className="h-9" onClick={() => void humanize()} disabled={busy}>
-          去AI味
+          {busyAction === "去AI味" ? "去AI味中…" : "去AI味"}
         </ButtonSecondary>
         <ButtonSecondary className="h-9" onClick={() => void regenerateTitles()} disabled={busy}>
-          重生成平台标题
+          {busyAction === "标题" ? "生成中…" : "重生成平台标题"}
         </ButtonSecondary>
-        <span className="ml-auto text-xs text-tertiary">
+        <span className="ml-auto flex items-center gap-2 text-xs text-tertiary">
+          {busy && busyAction === "去AI味" ? (
+            <span className="text-accent">正在润色，约需 10 秒，别关页面…</span>
+          ) : null}
           {stat.chars} 字 · {stat.imgs} 张图
           {stat.slots ? ` · ${stat.slots} 处待配图` : " · 配图已齐"}
         </span>

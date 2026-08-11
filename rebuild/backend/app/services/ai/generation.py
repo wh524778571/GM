@@ -37,6 +37,7 @@ from app.services.ai.prompts import (
 from app.services.ai.provider import AIProvider, extract_json_object
 from app.services.image_matching.matcher import ImageMatcherService
 from app.services.rendering import RenderResult, RenderService
+from app.services.text_utils import strip_emoji
 
 # 进度回调：(stage, percent, message) → None。生成耗时 30–120s，
 # 异步任务据此上报真实阶段，前端才能画出不骗人的进度条。
@@ -229,6 +230,11 @@ class GenerationService:
         # （解决"只有百家能插图 / 图片堆在一起重复"）
         contents, image_align_enf = self._align_images(contents, core)
         content_enforcements = list(content_enforcements) + list(image_align_enf)
+
+        # 兜底：模型偶发在正文塞 emoji（🔥✨💡 等），即便 prompt 已禁也强制剥离，
+        # 用排版（## 小标题、**加粗**、序号、引用）分层，绝不依赖表情符号。
+        core = strip_emoji(core)
+        contents = {k: strip_emoji(v) for k, v in contents.items()}
         # 单平台改写失败兜底母稿：如实登记，绝不静默假成功
         enforcements = list(content_enforcements)
         enforcements.extend(rewrite_errors)
@@ -433,7 +439,7 @@ class GenerationService:
                 f"把全文补到 {lo}–{hi} 字——本次至少追加 {deficit + 150} 字的新内容，"
                 f"至少 4 个有信息量的细节段落（具体画面/分镜描述、与原著或前作的呼应、"
                 f"观众真实反应或数据），每段 200–400 字；{ph_rule}；"
-                f"正文严格禁止 emoji 表情符号；全文严格不超过 {hi} 字，数清楚字数再停笔。"
+                f"正文严格禁止任何 emoji 表情符号（🔥✨💡📌 等一律不要）；用小标题、**加粗**、数字序号、引用（>）制造层次，不要依赖 emoji；全文严格不超过 {hi} 字，数清楚字数再停笔。"
             )
             extra2 = (
                 f"\n\n【最高优先级】只输出追加的新内容（绝不要复述原文），"
@@ -485,7 +491,7 @@ class GenerationService:
             f'只输出一个 JSON：{{"{key}":"改写后的完整正文"}}。\n'
             f"要求：风格——{rule.style}；这是一篇约 {target} 字（±30%）的完整正文"
             f"（绝不是标题、绝不是一句话）；"
-            f"{img_instruction}正文严格禁止 emoji 表情符号；"
+            f"{img_instruction}正文严格禁止任何 emoji 表情符号（🔥✨💡📌 等一律不要）；用小标题、**加粗**、数字序号、引用（>）制造层次，不要依赖 emoji；"
             f"结尾必须有互动引导（如「评论区聊聊」）。"
         )
         extra2 = (
@@ -675,7 +681,7 @@ class GenerationService:
             "toutiao": "悬念/数据钩子，像朋友在饭桌上安利，别标题党",
             "douyin": "口语化、有梗、短平快，像刷到就停不下来",
             "bilibili": "二次元梗、吐槽感、年轻化，带点玩梗语气",
-            "xhs": "emoji+清单感、第一人称、种草语气，像安利好物",
+            "xhs": "清单感、第一人称、种草语气，像安利好物（标题最多 1 个 emoji，绝不堆砌）",
         }
         keys = list(self.registry.keys())
         limits = {k: self.registry.get(k).title.max_chars for k in keys}
@@ -784,7 +790,9 @@ class GenerationService:
                         )
                     )
                     continue
-                image_sources[placeholder] = hit.stem
+                # 存相对 path（与 bind_image 端点一致：_素材库/作品/xxx.jpeg），
+                # 编辑器 proxy() 才能解析成可访问的 /images/... 真实出图。
+                image_sources[placeholder] = hit.path
                 suggestions.append(
                     ImageSuggestion(
                         placeholder=placeholder,
