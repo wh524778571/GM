@@ -28,10 +28,10 @@ interface ArticleOut {
 }
 
 const PLATFORMS = [
-  { key: "toutiao", label: "头条" },
-  { key: "baijia", label: "百家" },
-  { key: "bilibili", label: "B站" },
-  { key: "xhs", label: "小红书" },
+  { key: "toutiao", label: "头条", images: true },
+  { key: "baijia", label: "百家", images: true },
+  { key: "bilibili", label: "B站", images: true },
+  { key: "xhs", label: "小红书", images: false }, // 纯文字无图，不参与配图对齐
 ] as const;
 type PlatformKey = (typeof PLATFORMS)[number]["key"];
 
@@ -397,10 +397,24 @@ export function ArticleEditorScreen() {
             built[p.key] = raw;
           }
         }
-        // 四平台共享同一份配图计划：补齐缺失平台、去重、把堆一起的打散
-        const plan = buildPlan(built, map);
+        // 四平台共享同一份配图计划：补齐缺失平台、去重、把堆一起的打散。
+        // 纯文字无图平台（小红书）不参与对齐，否则会被强制注入配图占位符；
+        // 计划也只从可配图平台提取，避免残留标记污染全局计划。
+        const imageKeys = new Set<string>(PLATFORMS.filter((p) => p.images).map((p) => p.key));
+        const plan = buildPlan(
+          Object.fromEntries(Object.entries(built).filter(([k]) => imageKeys.has(k))),
+          map,
+        );
         for (const p of PLATFORMS) {
-          built[p.key] = alignText(built[p.key], plan);
+          if (p.images) {
+            built[p.key] = alignText(built[p.key], plan);
+          } else {
+            // 纯文字无图平台：兜底剥掉任何残留配图占位符（后端已剔除，这里双保险）
+            built[p.key] = built[p.key]
+              .replace(new RegExp(PH_RE.source, "g"), "")
+              .replace(/\n{3,}/g, "\n\n")
+              .trim();
+          }
         }
         texts.current = built;
         imgMap.current = map;
@@ -792,7 +806,12 @@ export function ArticleEditorScreen() {
         <ButtonSecondary className="h-9" onClick={() => void flushSave()}>
           保存
         </ButtonSecondary>
-        <ButtonSecondary className="h-9" onClick={insertAtCursor}>
+        <ButtonSecondary
+          className="h-9"
+          onClick={insertAtCursor}
+          disabled={active === "xhs"}
+          title={active === "xhs" ? "小红书为纯文字无图平台，不支持插图" : undefined}
+        >
           在光标处插图
         </ButtonSecondary>
         <ButtonSecondary className="h-9" onClick={() => void humanize()} disabled={busy}>
