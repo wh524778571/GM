@@ -63,14 +63,21 @@ export function ImageEditor({
   /* ── helpers ───────────────────────── */
 
   /** 从鼠标事件算出相对于图片容器的比例坐标 (0~1) */
-  const eventToRatio = useCallback((e: React.MouseEvent) => {
+  const eventToRatio = useCallback((e: React.MouseEvent | MouseEvent) => {
     const img = imgRef.current;
     if (!img) return { rx: 0, ry: 0 };
     const rect = img.getBoundingClientRect();
     return {
-      rx: (e.clientX - rect.left) / rect.width,
-      ry: (e.clientY - rect.top) / rect.height,
+      rx: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      ry: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
     };
+  }, []);
+
+  // window-level mouseup: 鼠标移到 overlay 外面松手也能正常结束拖拽
+  useEffect(() => {
+    const up = () => setDragging(null);
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
   }, []);
 
   /* ── image load ────────────────────── */
@@ -265,19 +272,20 @@ export function ImageEditor({
           </div>
         ) : null}
 
-        {/* image area */}
+        {/* image area — ALL mouse events on container, not img */}
         <div ref={containerRef}
           className="relative flex min-h-0 flex-1 items-center justify-center bg-[#0a0a0c] p-2"
-          style={mode === "crop" ? { cursor: dragging ? undefined : "crosshair" } : undefined}>
+          style={mode === "crop" ? { cursor: dragging ? undefined : "crosshair" } : undefined}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img ref={imgRef} src={srcBusted} alt={stem}
             onLoad={onImgLoad}
             draggable={false}
-            className="max-h-[65vh] max-w-full object-contain select-none"
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
+            className="pointer-events-none max-h-[65vh] max-w-full object-contain select-none"
           />
 
           {/* crop overlay — pure CSS, no canvas bullshit */}
@@ -285,7 +293,7 @@ export function ImageEditor({
             <div className="pointer-events-none absolute inset-0"
               style={{ width: "100%", height: "100%" }}>
               {/* darken outside */}
-              <div style={{
+              <div className="pointer-events-none" style={{
                 position: "absolute", inset: 0,
                 background: `rgba(0,0,0,0.5)`,
                 clipPath: `polygon(
@@ -296,10 +304,10 @@ export function ImageEditor({
                   ${overlayStyle.left} 100%, 100% 100%, 100% 0%
                 )`,
               }} />
-              {/* selection border */}
+              {/* selection border with handles — pointer-events-auto to receive drag */}
               <div className="pointer-events-auto absolute border-2 border-[#E5484D]"
                 style={overlayStyle}>
-                {/* 8 handles */}
+                {/* 8 handles — NO stopPropagation, let events bubble to container */}
                 {(["nw","ne","sw","se","n","s","w","e"] as const).map(pos => {
                   const cs: Record<string, string> = {
                     nw: "-top-1.5 -left-1.5 cursor-nwse-resize",
@@ -311,11 +319,7 @@ export function ImageEditor({
                     w: "-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize",
                     e: "-right-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize",
                   };
-                  return (
-                    <div key={pos} className={`absolute h-3 w-3 rounded-full border-2 border-[#E5484D] bg-white ${cs[pos]}`}
-                      onMouseDown={(ev) => { ev.stopPropagation(); ev.preventDefault(); }}
-                    />
-                  );
+                  return <div key={pos} className={`absolute h-3 w-3 rounded-full border-2 border-[#E5484D] bg-white ${cs[pos]}`} />;
                 })}
                 {/* size label */}
                 <div className="absolute -top-7 left-1 rounded bg-black/70 px-2 py-0.5 text-[11px] text-white whitespace-nowrap">
