@@ -28,7 +28,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
@@ -49,6 +48,7 @@ from app.services.publishing.errors import (
     NothingToPublish,
     UnknownPlatform,
 )
+from app.services.publishing.utils import is_valid_url, markdown_to_copy_text
 from app.services.rendering import RenderResult, RenderService, trim_metadata
 from app.services.text_utils import suggest_filename
 
@@ -59,33 +59,6 @@ STATE_LABELS = {
     PublishState.PUBLISHED.value: "已发布（人工确认）",
     PublishState.FAILED.value: "发布失败",
 }
-
-_URL_RE = re.compile(r"^https?://\S+$", re.I)
-
-# Markdown → 可直接粘贴的纯文本（平台后台编辑器不认 Markdown 语法）
-_MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s*", re.M)
-_MD_QUOTE = re.compile(r"^\s{0,3}>\s?", re.M)
-_MD_HR = re.compile(r"^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$", re.M)
-_MD_BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
-_MD_INLINE_CODE = re.compile(r"`([^`]+)`")
-_MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
-_BLANKS = re.compile(r"\n{3,}")
-
-
-def markdown_to_copy_text(md: str) -> str:
-    """把平台正文 Markdown 转成可直接粘进后台编辑器的纯文本。
-
-    只做「去语法符号」，不改动一个正文字符：标题去 `#`、引用去 `>`、
-    粗体去 `**`、分隔线整行删除。配图占位符**原样保留**，它正是告诉
-    人类「这里要插一张图」的锚点（xhs 由调用方在传入前剔除）。
-    """
-    text = _MD_HR.sub("", md or "")
-    text = _MD_HEADING.sub("", text)
-    text = _MD_QUOTE.sub("", text)
-    text = _MD_BOLD.sub(r"\1", text)
-    text = _MD_INLINE_CODE.sub(r"\1", text)
-    text = _MD_LINK.sub(r"\1", text)
-    return _BLANKS.sub("\n\n", text).strip()
 
 
 @dataclass
@@ -418,7 +391,7 @@ class PublishService:
             )
 
         url = (posted_url or "").strip() or None
-        if url is not None and not _URL_RE.match(url):
+        if url is not None and not is_valid_url(url):
             raise InvalidPostedUrl(
                 f"posted_url 不是合法链接：{url!r}（需以 http:// 或 https:// 开头）",
                 detail={"posted_url": url},

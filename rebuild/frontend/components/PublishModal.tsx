@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ButtonSecondary } from "./ButtonSecondary";
+import { ImageChecklist, ManualSteps } from "./PublishParts";
 import { PLATFORMS, normalizePlatform } from "@/lib/platforms";
 import { copyPlainText } from "@/lib/clipboard";
 import { toImageProxyUrl } from "@/lib/media";
@@ -338,43 +339,10 @@ export function PublishModal({
                 </div>
 
                 {/* 配图清单 */}
-                {packet.images_allowed && packet.image_tasks.length > 0 && (
-                  <div>
-                    <h3 className="text-[13px] font-medium text-primary">
-                      配图清单（需你在后台逐张上传）
-                    </h3>
-                    <ul className="mt-2 flex flex-col gap-1">
-                      {packet.image_tasks.map((t) => (
-                        <li
-                          key={t.index}
-                          className="flex items-center gap-2 rounded-row border border-subtle bg-raised px-3 py-1.5 text-xs"
-                        >
-                          <span className="text-tertiary">#{t.index}</span>
-                          <span className="min-w-0 flex-1 truncate text-secondary">
-                            {t.description}
-                          </span>
-                          <span className="truncate text-tertiary">{t.suggested_filename}</span>
-                          <span className={t.matched ? "text-success" : "text-warning"}>
-                            {t.matched ? "素材库已匹配" : "未匹配，需手动挑图"}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                <ImageChecklist tasks={packet.images_allowed ? packet.image_tasks : []} />
 
                 {/* 人工步骤 */}
-                <div>
-                  <h3 className="text-[13px] font-medium text-primary">人工步骤</h3>
-                  <ol className="mt-2 flex flex-col gap-1">
-                    {packet.manual_steps.map((s, i) => (
-                      <li key={s} className="flex gap-2 text-[13px] leading-6 text-secondary">
-                        <span className="text-tertiary">{i + 1}.</span>
-                        <span className="min-w-0 flex-1">{s}</span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
+                <ManualSteps steps={packet.manual_steps} />
 
                 {/* 确认 / 失败 */}
                 <div className="rounded-row border border-subtle bg-raised px-3 py-3">

@@ -7,6 +7,7 @@ import { Button } from "@/components/Button";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { DataSourceNote } from "@/components/DataSourceNote";
 import { GenerationProgress, type JobSnapshot } from "@/components/GenerationProgress";
+import { TopicCard } from "@/components/TopicCard";
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/clientApi";
 import { setCurrentArticleId } from "@/lib/currentArticle";
 
@@ -37,26 +38,6 @@ const TOPIC_TYPES = [
   "大事记",
   "常青候选",
 ];
-
-// 选题类型 → 配色（复用平台色，未命中则用 accent）
-const TYPE_COLOR: Record<string, string> = {
-  一线资讯: "text-plat-toutiao",
-  最新剧情: "text-plat-toutiao",
-  小众剧情: "text-plat-bilibili",
-  趣事: "text-plat-xhs",
-  人物生日: "text-plat-baijia",
-  大事记: "text-accent",
-  常青候选: "text-secondary",
-};
-
-// 爆款基因 → 配色（情绪红 / 信息差蓝 / 身份粉 / 行动绿）
-const GENE_COLOR: Record<string, string> = {
-  情绪钩子: "border-plat-toutiao/40 text-plat-toutiao bg-plat-toutiao/10",
-  信息差: "border-plat-baijia/40 text-plat-baijia bg-plat-baijia/10",
-  身份标签: "border-plat-xhs/40 text-plat-xhs bg-plat-xhs/10",
-  行动触发: "border-plat-bilibili/40 text-plat-bilibili bg-plat-bilibili/10",
-};
-const GENE_FALLBACK = "border-subtle text-secondary bg-raised";
 
 interface TopicForm {
   title: string;
@@ -447,89 +428,22 @@ export function TopicsScreen() {
             {topics
               .filter((t) => t.article_status !== "published")
               .map((t) => (
-              <div
+              <TopicCard
                 key={t.id}
-                className={`flex flex-col rounded-card border bg-card p-4 ${
-                  t.generated ? "border-success/30 bg-success/5" : "border-subtle"
-                }`}
-              >
-                <div className="flex items-start gap-2">
-                  <span
-                    className={`shrink-0 rounded-row border border-subtle px-2 py-0.5 text-[11px] ${
-                      TYPE_COLOR[t.topic_type] ?? "text-secondary"
-                    }`}
-                  >
-                    {t.topic_type}
-                  </span>
-                  {t.generated ? (
-                    <span className="shrink-0 rounded-row border border-success/30 px-2 py-0.5 text-[11px] text-success">
-                      已生成
-                    </span>
-                  ) : null}
-                  <div className="ml-auto flex items-center gap-1 text-[13px]">
-                    <button
-                      type="button"
-                      onClick={() => openEdit(t)}
-                      title="编辑"
-                      className="px-1 text-tertiary transition-colors hover:text-accent"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteTopic(t)}
-                      title="删除"
-                      className="px-1 text-tertiary transition-colors hover:text-plat-toutiao"
-                    >
-                      🗑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => blacklistTopic(t)}
-                      title="不再推荐"
-                      className="px-1 text-tertiary transition-colors hover:text-plat-toutiao"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-                <h3 className="mt-2 text-[15px] font-semibold leading-6 text-primary">{t.title}</h3>
-                {t.summary ? (
-                  <p className="mt-1 text-[13px] leading-5 text-secondary">{t.summary}</p>
-                ) : null}
-                {t.angle ? (
-                  <p className="mt-1 text-xs leading-5 text-tertiary">为什么现在写：{t.angle}</p>
-                ) : null}
-                {t.viral_genes && t.viral_genes.length > 0 ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {t.viral_genes.map((g) => (
-                      <span
-                        key={g}
-                        className={`rounded-row border px-2 py-0.5 text-[11px] ${
-                          GENE_COLOR[g] ?? GENE_FALLBACK
-                        }`}
-                      >
-                        {g}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                {t.viral_why ? (
-                  <p className="mt-1.5 text-xs leading-5 text-accent">
-                    <span className="text-tertiary">为什么能爆 · </span>
-                    {t.viral_why}
-                  </p>
-                ) : null}
-                <div className="mt-3 flex gap-2">
-                  <Button onClick={() => writeTopic(t)} disabled={writingId === t.id}>
-                    {writingId === t.id
-                      ? "生成中…"
-                      : t.generated
-                      ? "重新生成"
-                      : "生成并编辑"}
-                  </Button>
-                </div>
-              </div>
+                id={t.id}
+                title={t.title}
+                topic_type={t.topic_type}
+                summary={t.summary}
+                angle={t.angle}
+                viral_genes={t.viral_genes}
+                viral_why={t.viral_why}
+                generated={t.generated}
+                writing={writingId === t.id}
+                onWrite={() => writeTopic(t)}
+                onEdit={() => openEdit(t)}
+                onDelete={() => deleteTopic(t)}
+                onBlacklist={() => blacklistTopic(t)}
+              />
             ))}
           </div>
         )}
