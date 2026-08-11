@@ -51,6 +51,8 @@ export function ImageEditor({
   const [scale, setScale] = useState(1);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // 覆盖保存后递增以绕过浏览器缓存，强制重新加载图片
+  const [reloadKey, setReloadKey] = useState(0);
 
   // save dialog state
   const [saveMode, setSaveMode] = useState<"overwrite" | "new">("new");
@@ -61,10 +63,11 @@ export function ImageEditor({
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
 
-  // load image
+  // load image (reloadKey 变化时重新加载，绕过浏览器缓存)
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = "anonymous";
+    const bustedSrc = reloadKey ? `${src}${src.includes("?") ? "&" : "?"}_t=${reloadKey}` : src;
     img.onload = () => {
       imgRef.current = img;
       const c = canvasRef.current;
@@ -76,8 +79,8 @@ export function ImageEditor({
       c.height = img.naturalHeight * s;
       drawView(c, img, s);
     };
-    img.src = src;
-  }, [src]);
+    img.src = bustedSrc;
+  }, [src, reloadKey]);
 
   function drawView(c: HTMLCanvasElement, img: HTMLImageElement, s: number) {
     const ctx = c.getContext("2d");
@@ -185,6 +188,7 @@ export function ImageEditor({
       if (saveMode === "overwrite") {
         await onOverwrite(croppedBlob, materialId);
         setMsg("✓ 已覆盖原图");
+        setReloadKey((k) => k + 1); // 绕过缓存，重新加载新图
       } else {
         const name = saveName.trim() || stem;
         await onSaveAsNew(croppedBlob, `${name}.jpg`);
