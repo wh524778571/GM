@@ -40,7 +40,7 @@ from app.services.ai.provider import AIProvider, extract_json_object
 from app.services.image_matching.matcher import ImageMatcherService
 from app.services.rendering import RenderResult, RenderService
 from app.services.text_utils import strip_emoji
-from app.services.ai.style_rules import PLATFORM_ANGLES, DEPTH_GUIDE
+from app.services.ai.style_rules import PLATFORM_ANGLES, DEPTH_GUIDE, VOICE_GUIDE
 
 # 进度回调：(stage, percent, message) → None。生成耗时 30–120s，
 # 异步任务据此上报真实阶段，前端才能画出不骗人的进度条。
@@ -653,15 +653,19 @@ class GenerationService:
             )
         else:
             img_instruction = "纯文字无图，把母稿里的所有【配图N：...】占位符全部删除，不要保留；"
+        voice_block = f"\n\n{VOICE_GUIDE}"
         user = (
             f"以下是一篇国漫解析母稿：\n\n{core}\n\n"
             f"请把这篇母稿改写成【{rule.name}】风格的自媒体正文，"
             f'只输出一个 JSON：{{"{key}":"改写后的完整正文"}}。\n'
             f"要求：风格——{rule.style}；不要只是把母稿换个说法，要按本平台读者最关心的角度重新组织内容、"
             f"用平台原生的开头钩子切入（头条用数据/悬念、B站用争议/玩梗、百家用观点/分析、小红书用情感/清单），"
-            f"四个平台要有明显不同的侧重点，而不是同一篇换四种语气；{angle_block}这是一篇完整的正文（篇幅自然，写透即可，不要凑字数注水）"
+            f"四个平台要有明显不同的侧重点，而不是同一篇换四种语气；{angle_block}"
+            f"这是一篇完整的正文（本平台目标约 {target} 字，写透即可，不要凑字数注水，也不要写一半就停）；"
             f"（绝不是标题、绝不是一句话）；"
-            f"{img_instruction}正文严格禁止任何 emoji 表情符号（🔥✨💡📌 等一律不要）；用小标题、**加粗**、数字序号、引用（>）制造层次，不要依赖 emoji；"
+            f"{img_instruction}"
+            f"必须用自己的口吻写（第一人称「我 / 我觉得 / 说真的」），每节都要有我的判断与分析，不是剧情复读、不是空话套话；{voice_block}"
+            f"正文用统一 markdown 语法，保证渲染像文章：一律用 ## 分节小标题；**加粗**关键词；用 - 列点拆清单；用 > 引一句台词/数据；禁止任何 emoji；"
             f"{real_block_text}"
             f"结尾必须有互动引导（如「评论区聊聊」）。"
         )

@@ -7,8 +7,15 @@ import { Button } from "@/components/Button";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { MaterialPicker } from "@/components/MaterialPicker";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/clientApi";
-import { toImageProxyUrl } from "@/lib/media";
 import { setCurrentArticleId, useCurrentArticleId } from "@/lib/currentArticle";
+import {
+  ImgMap,
+  phKey,
+  PH_RE,
+  figureHtml,
+  slotHtml,
+  renderArticleMarkdown,
+} from "@/lib/articleMarkdown";
 
 interface ArticleOut {
   article_id: string;
@@ -28,26 +35,7 @@ const PLATFORMS = [
 ] as const;
 type PlatformKey = (typeof PLATFORMS)[number]["key"];
 
-/** 【配图3：沧元图_破境瞬间】 */
-const PH_RE = /【配图(\d+)\s*[:：]\s*([^】]*)】/g;
-
-type ImgMap = Record<string, string>; // "【配图N：描述】" -> "/images/xxx.jpeg"
-
-const phKey = (n: string | number, desc: string) => `【配图${n}：${desc.trim()}】`;
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/** 后端存储路径 -> 浏览器可加载的同源代理 url */
-function proxy(stem: string): string {
-  const raw = stem.startsWith("/") ? stem : `/images/${stem}`;
-  return toImageProxyUrl(raw) ?? raw;
-}
+/** 渲染工具（PH_RE / phKey / ImgMap / figureHtml / slotHtml / renderArticleMarkdown）已迁至 @/lib/articleMarkdown */
 
 /* ------------------------------------------------------------------ *
  * 本地草稿缓存：刷新 / 崩溃 / 切走兜底，保证编辑内容不丢
@@ -89,94 +77,10 @@ function loadLocal(id: string): LocalDraft | null {
   }
 }
 
-/* ------------------------------------------------------------------ *
- * 渲染：带【配图N】标记的纯文本  ->  编辑区 DOM
- * ------------------------------------------------------------------ */
+/* 渲染与配图辅助（figureHtml / slotHtml / renderArticleMarkdown / phKey / PH_RE）
+ * 已统一迁至 @/lib/articleMarkdown，编辑器与详情页共用同一套，保证四平台视觉一致。 */
 
-const IMG_BOX =
-  "my-3 overflow-hidden rounded-btn border border-subtle bg-raised";
-const PH_BOX =
-  "ph-slot my-3 flex cursor-pointer items-center gap-3 rounded-btn border border-dashed border-accent/50 bg-accent/5 px-4 py-3 text-[13px] text-secondary transition hover:border-accent hover:bg-accent/10";
 
-function figureHtml(n: string, desc: string, stem: string): string {
-  const d = escapeHtml(desc.trim());
-  return (
-    `<figure data-img="${n}" data-desc="${d}" data-stem="${escapeHtml(stem)}" contenteditable="false" class="${IMG_BOX}">` +
-    `<img src="${escapeHtml(proxy(stem))}" alt="${d}" class="block max-h-[420px] w-full object-contain bg-black/20" />` +
-    `<figcaption data-ui="1" class="flex items-center gap-2 border-t border-subtle px-3 py-1.5 text-xs text-tertiary">` +
-    `<span>配图${n} · ${d}</span>` +
-    `<button type="button" data-act="change" class="ml-auto rounded px-2 py-0.5 text-accent hover:bg-accent/10">换图</button>` +
-    `<button type="button" data-act="remove" class="rounded px-2 py-0.5 text-tertiary hover:bg-white/5">移除</button>` +
-    `</figcaption></figure>`
-  );
-}
-
-function slotHtml(n: string, desc: string): string {
-  const d = escapeHtml(desc.trim());
-  return (
-    `<div data-ph="${n}" data-desc="${d}" contenteditable="false" class="${PH_BOX}">` +
-    `<span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent/15 text-[11px] font-semibold text-accent">${n}</span>` +
-    `<span class="font-medium text-primary">${d || "待配图"}</span>` +
-    `<span data-ui="1" class="ml-auto text-xs text-accent">点击从素材库选图 →</span>` +
-    `</div>`
-  );
-}
-
-/** 行内 markdown：**粗体** */
-function inline(text: string): string {
-  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-}
-
-/** 把「带标记的纯文本」渲染成编辑区 HTML（段落 / 小标题 / 图片 / 占位卡片）。 */
-function renderBody(text: string, imgMap: ImgMap): string {
-  const lines = (text ?? "").replace(/\r\n/g, "\n").split("\n");
-  const blocks: string[] = [];
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    // 整行就是一个配图标记 -> 独立成块
-    const only = line.match(/^【配图(\d+)\s*[:：]\s*([^】]*)】$/);
-    if (only) {
-      const [, n, desc] = only;
-      const stem = imgMap[phKey(n, desc)];
-      blocks.push(stem ? figureHtml(n, desc, stem) : slotHtml(n, desc));
-      continue;
-    }
-
-    // 行内混有配图标记 -> 先出文字块，再出图块
-    if (PH_RE.test(line)) {
-      PH_RE.lastIndex = 0;
-      let cursor = 0;
-      let m: RegExpExecArray | null;
-      while ((m = PH_RE.exec(line)) !== null) {
-        const before = line.slice(cursor, m.index).trim();
-        if (before) blocks.push(`<p>${inline(before)}</p>`);
-        const stem = imgMap[phKey(m[1], m[2])];
-        blocks.push(stem ? figureHtml(m[1], m[2], stem) : slotHtml(m[1], m[2]));
-        cursor = m.index + m[0].length;
-      }
-      const tail = line.slice(cursor).trim();
-      if (tail) blocks.push(`<p>${inline(tail)}</p>`);
-      PH_RE.lastIndex = 0;
-      continue;
-    }
-
-    if (line.startsWith("### ")) {
-      blocks.push(`<h4>${inline(line.slice(4))}</h4>`);
-    } else if (line.startsWith("## ")) {
-      blocks.push(`<h3>${inline(line.slice(3))}</h3>`);
-    } else if (line.startsWith("# ")) {
-      blocks.push(`<h3>${inline(line.slice(2))}</h3>`);
-    } else {
-      blocks.push(`<p>${inline(line)}</p>`);
-    }
-  }
-
-  if (!blocks.length) blocks.push("<p><br /></p>");
-  return blocks.join("");
-}
 
 /* ------------------------------------------------------------------ *
  * 序列化：编辑区 DOM -> 带标记的纯文本 + 图片绑定
@@ -223,6 +127,26 @@ function serialize(root: HTMLElement): Serialized {
       if (node.tagName === "H4") {
         const t = node.innerText.trim();
         if (t) out.push(`### ${t}`);
+        return;
+      }
+      if (node.tagName === "H5") {
+        const t = node.innerText.trim();
+        if (t) out.push(`#### ${t}`);
+        return;
+      }
+      // 列表：把每个 li 还原成 - / 1. 标记行，保证保存后格式不丢
+      if (node.tagName === "UL" || node.tagName === "OL") {
+        const ordered = node.tagName === "OL";
+        node.querySelectorAll("li").forEach((li, idx) => {
+          const t = li.innerText.trim();
+          if (t) out.push(ordered ? `${idx + 1}. ${t}` : `- ${t}`);
+        });
+        return;
+      }
+      // 引用：每行加 > 前缀
+      if (node.tagName === "BLOCKQUOTE") {
+        const t = node.innerText.trim();
+        if (t) out.push(`> ${t.replace(/\n/g, "\n> ")}`);
         return;
       }
       // 块级容器里若还嵌着图 / 占位，递归处理，否则直接取文字
@@ -439,7 +363,7 @@ export function ArticleEditorScreen() {
     (key: PlatformKey) => {
       const el = editorRef.current;
       if (!el) return;
-      el.innerHTML = renderBody(texts.current[key] ?? "", imgMap.current);
+      el.innerHTML = renderArticleMarkdown(texts.current[key] ?? "", imgMap.current, { showSlots: true });
       refreshStat();
     },
     [refreshStat],
@@ -727,7 +651,7 @@ export function ArticleEditorScreen() {
     if (key === active) captureCurrent();
     const text = texts.current[key] ?? "";
     const box = document.createElement("div");
-    box.innerHTML = renderBody(text, imgMap.current);
+    box.innerHTML = renderArticleMarkdown(text, imgMap.current, { showSlots: true });
 
     // 去掉界面元素 + 未配图的占位卡片
     box.querySelectorAll("[data-ui]").forEach((n) => n.remove());

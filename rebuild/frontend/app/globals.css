@@ -40,6 +40,24 @@ body {
 .article-body strong {
   @apply font-semibold text-primary;
 }
+.article-body h5 {
+  @apply mb-1.5 mt-4 text-[14px] font-semibold leading-7 text-primary;
+}
+.article-body ul {
+  @apply my-3 list-disc space-y-1.5 pl-6 text-primary;
+}
+.article-body ol {
+  @apply my-3 list-decimal space-y-1.5 pl-6 text-primary;
+}
+.article-body li {
+  @apply leading-7;
+}
+.article-body blockquote {
+  @apply my-3 border-l-2 border-accent/60 pl-3 text-[14px] leading-7 text-tertiary;
+}
+.article-body hr {
+  @apply my-5 border-subtle;
+}
 .article-body > *:first-child {
   @apply mt-0;
 }

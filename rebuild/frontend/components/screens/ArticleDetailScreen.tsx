@@ -13,6 +13,7 @@ import { PLATFORMS } from "@/lib/platforms";
 import { formatCompact } from "@/lib/format";
 import { apiGet, apiPatch, ApiError } from "@/lib/clientApi";
 import { toImageProxyUrl } from "@/lib/media";
+import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import type { PlatformKey } from "@/lib/types";
 
 const PLATFORM_ORDER: PlatformKey[] = ["xhs", "toutiao", "baijia", "bilibili"];
@@ -48,50 +49,21 @@ interface ArticleAnalytics {
 }
 
 const PLACEHOLDER_RE = /【配图(\d+)[:：](.*?)】/g;
+void PLACEHOLDER_RE; // 保留向后兼容引用；正文渲染已统一走 renderArticleMarkdown
 
-/** 把正文里的【配图N：描述】渲染成真图（来自 image_sources 绑定的素材）。 */
-function renderContentWithImages(
+/** 把正文（含【配图N】标记与 markdown）渲染成文章视图；未绑定占位符不泄漏给读者。 */
+function renderArticleBody(
   text: string,
   imgMap: Record<string, string | null>,
-): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  let m: RegExpExecArray | null;
-  PLACEHOLDER_RE.lastIndex = 0;
-  while ((m = PLACEHOLDER_RE.exec(text)) !== null) {
-    const placeholder = m[0];
-    const description = m[2].trim();
-    const before = text.slice(last, m.index);
-    if (before.trim()) {
-      nodes.push(
-        <p key={key++} className="whitespace-pre-wrap text-[14px] leading-7 text-secondary">
-          {before}
-        </p>,
-      );
-    }
-    const url = imgMap[placeholder];
-    if (url) {
-      // 已绑定：渲染真图；不在读者视图展示「配图N：描述」这类内部作者标记
-      nodes.push(
-        <figure key={key++} className="my-2 overflow-hidden rounded-row border border-subtle">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={url} alt={description} className="max-h-80 w-full object-cover" />
-        </figure>,
-      );
-    }
-    // 未绑定素材的占位符是内部作者标记，不在读者视图渲染，避免泄漏「配图N：描述」
-    last = m.index + placeholder.length;
-  }
-  const after = text.slice(last);
-  if (after.trim()) {
-    nodes.push(
-      <p key={key++} className="whitespace-pre-wrap text-[14px] leading-7 text-secondary">
-        {after}
-      </p>,
-    );
-  }
-  return nodes;
+): ReactNode {
+  const map: Record<string, string> = {};
+  for (const [k, v] of Object.entries(imgMap)) if (v) map[k] = v;
+  return (
+    <div
+      className="article-body"
+      dangerouslySetInnerHTML={{ __html: renderArticleMarkdown(text, map, { showSlots: false }) }}
+    />
+  );
 }
 
 export function ArticleDetailScreen({ articleId }: { articleId: string }) {
@@ -182,7 +154,7 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
         </div>
 
         <div className="min-h-[160px] rounded-row border border-subtle bg-raised px-4 py-3">
-          {renderContentWithImages(platformContent, imgMap)}
+          {renderArticleBody(platformContent, imgMap)}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
