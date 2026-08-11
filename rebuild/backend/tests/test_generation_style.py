@@ -116,12 +116,13 @@ def _provider(payload: dict | str | None = None) -> MockProvider:
 
 
 # ── 1. 人设继承 ───────────────────────────────────────────────
-def test_system_prompt_is_passed_verbatim():
+def test_system_prompt_is_passed_verbatim(monkeypatch):
+    monkeypatch.setattr("app.services.ai.generation.load_real_data_context", lambda _topic, **kw: "")
     provider = _provider()
     GenerationService(provider).generate(TOPIC, render=False, match_images=False)
 
-    # 新架构：母稿 1 次 + 逐平台改写 4 次 = 5 次模型调用
-    assert len(provider.received) == 5
+    # 新架构：母稿 1 次 + 逐平台改写 4 次 + 标题 1 次 = 6 次模型调用
+    assert len(provider.received) == 6
     # 每次调用的 system 都逐字等于 SYSTEM_PROMPT（人设不丢、不被覆盖）
     for sent in provider.received:
         assert sent["system"] == SYSTEM_PROMPT

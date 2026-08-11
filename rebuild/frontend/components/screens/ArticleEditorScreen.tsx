@@ -11,12 +11,22 @@ import { copyPlainText } from "@/lib/clipboard";
 import { setCurrentArticleId, useCurrentArticleId } from "@/lib/currentArticle";
 import {
   ImgMap,
-  phKey,
   PH_RE,
   figureHtml,
   slotHtml,
   renderArticleMarkdown,
 } from "@/lib/articleMarkdown";
+import {
+  serialize,
+  looksLikeHtml,
+  htmlToMarkerText,
+  buildPlan,
+  alignText,
+} from "@/lib/editorUtils";
+import {
+  persistLocal,
+  loadLocal,
+} from "@/lib/editorDraft";
 
 interface ArticleOut {
   article_id: string;
@@ -32,256 +42,9 @@ const PLATFORMS = [
   { key: "toutiao", label: "头条", images: true },
   { key: "baijia", label: "百家", images: true },
   { key: "bilibili", label: "B站", images: true },
-  { key: "xhs", label: "小红书", images: false }, // 纯文字无图，不参与配图对齐
+  { key: "xhs", label: "小红书", images: false },
 ] as const;
 type PlatformKey = (typeof PLATFORMS)[number]["key"];
-
-/** 渲染工具（PH_RE / phKey / ImgMap / figureHtml / slotHtml / renderArticleMarkdown）已迁至 @/lib/articleMarkdown */
-
-/* ------------------------------------------------------------------ *
- * 本地草稿缓存：刷新 / 崩溃 / 切走兜底，保证编辑内容不丢
- * ------------------------------------------------------------------ */
-
-const lsKey = (id: string) => `guoman:draft:${id}`;
-
-interface LocalDraft {
-  texts: Record<string, string>;
-  imgMap: ImgMap;
-  titles: Record<string, string>;
-  ts: number;
-}
-
-function persistLocal(
-  id: string,
-  texts: Record<string, string>,
-  imgMap: ImgMap,
-  titles: Record<string, string>,
-): void {
-  try {
-    const payload: LocalDraft = { texts, imgMap, titles, ts: Date.now() };
-    localStorage.setItem(lsKey(id), JSON.stringify(payload));
-  } catch {
-    /* 隐私模式 / 存储满时静默降级，不影响主流程 */
-  }
-}
-
-function loadLocal(id: string): LocalDraft | null {
-  try {
-    const raw = localStorage.getItem(lsKey(id));
-    if (!raw) return null;
-    const d = JSON.parse(raw) as LocalDraft;
-    // 超过 7 天的本地草稿视为过期，不再覆盖后端内容
-    if (Date.now() - (d.ts ?? 0) > 7 * 24 * 3600 * 1000) return null;
-    return d;
-  } catch {
-    return null;
-  }
-}
-
-/* 渲染与配图辅助（figureHtml / slotHtml / renderArticleMarkdown / phKey / PH_RE）
- * 已统一迁至 @/lib/articleMarkdown，编辑器与详情页共用同一套，保证四平台视觉一致。 */
-
-
-
-/* ------------------------------------------------------------------ *
- * 序列化：编辑区 DOM -> 带标记的纯文本 + 图片绑定
- * ------------------------------------------------------------------ */
-
-interface Serialized {
-  text: string;
-  bound: ImgMap; // 本平台已配好的图
-  slots: string[]; // 本平台出现过的所有占位 key（用于清理旧绑定）
-}
-
-function serialize(root: HTMLElement): Serialized {
-  const bound: ImgMap = {};
-  const slots: string[] = [];
-  const out: string[] = [];
-
-  const walk = (nodes: NodeListOf<ChildNode> | ChildNode[]) => {
-    nodes.forEach((node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        const t = (node.textContent ?? "").trim();
-        if (t) out.push(t);
-        return;
-      }
-      if (!(node instanceof HTMLElement)) return;
-
-      if (node.tagName === "FIGURE" && node.dataset.img) {
-        const key = phKey(node.dataset.img, node.dataset.desc ?? "");
-        slots.push(key);
-        if (node.dataset.stem) bound[key] = node.dataset.stem;
-        out.push(key);
-        return;
-      }
-      if (node.dataset.ph) {
-        const key = phKey(node.dataset.ph, node.dataset.desc ?? "");
-        slots.push(key);
-        out.push(key);
-        return;
-      }
-      if (node.tagName === "H3") {
-        const t = node.innerText.trim();
-        if (t) out.push(`## ${t}`);
-        return;
-      }
-      if (node.tagName === "H4") {
-        const t = node.innerText.trim();
-        if (t) out.push(`### ${t}`);
-        return;
-      }
-      if (node.tagName === "H5") {
-        const t = node.innerText.trim();
-        if (t) out.push(`#### ${t}`);
-        return;
-      }
-      // 列表：把每个 li 还原成 - / 1. 标记行，保证保存后格式不丢
-      if (node.tagName === "UL" || node.tagName === "OL") {
-        const ordered = node.tagName === "OL";
-        node.querySelectorAll("li").forEach((li, idx) => {
-          const t = li.innerText.trim();
-          if (t) out.push(ordered ? `${idx + 1}. ${t}` : `- ${t}`);
-        });
-        return;
-      }
-      // 引用：每行加 > 前缀
-      if (node.tagName === "BLOCKQUOTE") {
-        const t = node.innerText.trim();
-        if (t) out.push(`> ${t.replace(/\n/g, "\n> ")}`);
-        return;
-      }
-      // 块级容器里若还嵌着图 / 占位，递归处理，否则直接取文字
-      if (node.querySelector("figure[data-img],[data-ph]")) {
-        walk(node.childNodes);
-        return;
-      }
-      const t = node.innerText.trim();
-      if (t) out.push(t);
-    });
-  };
-
-  walk(root.childNodes);
-  return { text: out.join("\n\n"), bound, slots };
-}
-
-/** 旧数据兼容：早期存过 HTML，这里降级回「标记文本 + 绑定」。 */
-function htmlToMarkerText(html: string): { text: string; bound: ImgMap } {
-  const box = document.createElement("div");
-  box.innerHTML = html;
-  const bound: ImgMap = {};
-  box.querySelectorAll("img").forEach((img) => {
-    const n = img.getAttribute("data-index") ?? "";
-    const stem = img.getAttribute("data-stem") ?? "";
-    const desc = img.getAttribute("alt") ?? "";
-    const key = phKey(n || "1", desc);
-    if (stem) bound[key] = stem;
-    img.replaceWith(document.createTextNode(`\n${key}\n`));
-  });
-  box.querySelectorAll("div,p,br,h1,h2,h3,h4").forEach((el) => {
-    el.append(document.createTextNode("\n"));
-  });
-  return { text: (box.innerText || box.textContent || "").trim(), bound };
-}
-
-const looksLikeHtml = (s: string) => /<(img|div|p|figure|br)\b/i.test(s);
-
-/** 从各平台正文 + 已绑定图里提取全局配图计划：编号 -> 描述（按编号去重） */
-function buildPlan(
-  contents: Record<string, string>,
-  imgMap: ImgMap,
-): Record<number, string> {
-  const plan: Record<number, string> = {};
-  const phLocal = new RegExp(PH_RE.source, "g");
-  const ingest = (text: string) => {
-    phLocal.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = phLocal.exec(text)) !== null) {
-      const n = parseInt(m[1], 10);
-      if (!Number.isNaN(n) && !(n in plan)) plan[n] = m[2].trim();
-    }
-  };
-  for (const raw of Object.values(contents)) ingest(String(raw || ""));
-  for (const k of Object.keys(imgMap)) {
-    const m = k.match(/^【配图(\d+)\s*[:：]\s*([^】]*)】$/);
-    if (m) {
-      const n = parseInt(m[1], 10);
-      if (!Number.isNaN(n) && !(n in plan)) plan[n] = m[2].trim();
-    }
-  }
-  return plan;
-}
-
-const hasMark = (p: string) => /【配图\d+\s*[:：]/.test(p);
-
-/**
- * 把一篇平台正文对齐成「四平台一致、分散不重复」的配图版：
- *  - 同编号只保留首个（去掉堆一起的重复）；
- *  - 若某平台缺失配图、或现存配图连续堆一起（相邻间隔<2段），则删除全部标记后按段落均匀重排；
- *  - 不堆一起、无缺失的平台原样保留（不破坏已分散的新文章 / 用户手动调好的位置）。
- */
-function alignText(text: string, plan: Record<number, string>): string {
-  const nums = Object.keys(plan).map(Number).sort((a, b) => a - b);
-  if (!nums.length) return text;
-  const ph = new RegExp(PH_RE.source, "g");
-
-  // 1) 去重：同编号只留首个
-  const seen = new Set<number>();
-  let cleaned = text.replace(ph, (full, n) => {
-    const num = Number(n);
-    if (seen.has(num)) return "";
-    seen.add(num);
-    return full;
-  });
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
-
-  const paras = cleaned.split(/\n\n+/);
-  const markIdx: number[] = [];
-  paras.forEach((p, i) => {
-    if (hasMark(p)) markIdx.push(i);
-  });
-  const present = new Set(
-    markIdx.map((i) => {
-      const m = paras[i].match(/【配图(\d+)/);
-      return m ? Number(m[1]) : -1;
-    }),
-  );
-  const missing = nums.filter((n) => !present.has(n));
-  let reshuffle = false;
-  for (let i = 1; i < markIdx.length; i++) {
-    if (markIdx[i] - markIdx[i - 1] < 2) reshuffle = true;
-  }
-  // 全部落在最后 30% 段落（过度集中）也重排——与后端 _need_reshuffle 对齐
-  const totalParas = paras.length;
-  if (
-    !reshuffle &&
-    markIdx.length >= 2 &&
-    markIdx[0] >= Math.max(1, Math.floor(totalParas * 0.7))
-  ) {
-    reshuffle = true;
-  }
-  if (!reshuffle && !missing.length) return cleaned;
-
-  // 重排：删全部标记，按段落均匀重插全部 plan（编号顺序分散）
-  const noMarks = cleaned.replace(ph, "").replace(/\n{3,}/g, "\n\n").trim();
-  const ps = noMarks.split(/\n\n+/).filter((p) => p.trim());
-  const P = ps.length;
-  if (P <= 1) {
-    return (
-      ps.join("\n\n") +
-      "\n\n" +
-      nums.map((n) => `【配图${n}：${plan[n]}】`).join("\n\n")
-    );
-  }
-  const inserts = nums.map((n, k) => ({
-    idx: Math.min(P - 1, Math.floor(((k + 1) / (nums.length + 1)) * P)),
-    tok: `【配图${n}：${plan[n]}】`,
-  }));
-  inserts.sort((a, b) => b.idx - a.idx);
-  inserts.forEach(({ idx, tok }) => ps.splice(idx + 1, 0, tok));
-  return ps.join("\n\n");
-}
-
-/* ------------------------------------------------------------------ */
 
 export function ArticleEditorScreen() {
   const router = useRouter();

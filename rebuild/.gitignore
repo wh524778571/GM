@@ -33,3 +33,6 @@ build/
 
 # 系统
 .DS_Store
+
+# 后端运行日志（stderr 重定向产物）
+*.err
