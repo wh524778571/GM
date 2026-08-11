@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ButtonSecondary } from "./ButtonSecondary";
 import { PLATFORMS, normalizePlatform } from "@/lib/platforms";
+import { copyPlainText } from "@/lib/clipboard";
 import type {
   PublishPacket,
   PublishPacketsResponse,
@@ -149,12 +150,11 @@ export function PublishModal({
 
   async function copy(text: string, key: string) {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyPlainText(text);
       setCopied(key);
       window.setTimeout(() => setCopied(null), 1600);
     } catch {
-      // 浏览器拒绝剪贴板权限时如实告知，不假装复制成功。
-      setActionError("复制失败（浏览器未授权剪贴板），请手动选中下方文本复制");
+      setActionError("复制失败，请手动选中下方文本复制");
     }
   }
 

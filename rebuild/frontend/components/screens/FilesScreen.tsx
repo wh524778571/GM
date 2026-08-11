@@ -7,6 +7,7 @@ import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { Chip } from "@/components/Chip";
 import { DataSourceNote } from "@/components/DataSourceNote";
 import { apiDelete, apiGet, ApiError } from "@/lib/clientApi";
+import { copyPlainText } from "@/lib/clipboard";
 import { IconFolder } from "@/components/icons";
 import type { DataSource, FileItem } from "@/lib/types";
 
@@ -137,11 +138,11 @@ export function FilesScreen({
 
   async function copyPath(item: FileItem) {
     try {
-      await navigator.clipboard.writeText(item.path);
+      await copyPlainText(item.path);
       setCopied(item.relPath);
       window.setTimeout(() => setCopied((c) => (c === item.relPath ? null : c)), 1600);
     } catch {
-      setError("复制失败（浏览器未授权剪贴板），请手动选中路径复制");
+      setError("复制失败，请手动选中路径复制");
     }
   }
 

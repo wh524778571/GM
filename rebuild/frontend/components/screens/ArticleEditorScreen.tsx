@@ -7,6 +7,7 @@ import { Button } from "@/components/Button";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { MaterialPicker } from "@/components/MaterialPicker";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/clientApi";
+import { copyPlainText } from "@/lib/clipboard";
 import { setCurrentArticleId, useCurrentArticleId } from "@/lib/currentArticle";
 import {
   ImgMap,
@@ -709,7 +710,7 @@ export function ArticleEditorScreen() {
           "，去平台编辑器直接粘贴",
       );
     } catch {
-      await navigator.clipboard.writeText(plain);
+      await copyPlainText(plain);
       setOkMsg(`已复制「${label}」文字（浏览器不支持图文复制）`);
     }
   }
