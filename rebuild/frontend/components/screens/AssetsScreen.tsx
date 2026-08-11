@@ -152,13 +152,16 @@ export function AssetsScreen({
   const [editorItem, setEditorItem] = useState<MaterialItem | null>(null);
   const [editorInfo, setEditorInfo] = useState<{ width?: number; height?: number; format?: string; sizeBytes?: number }>({});
 
+  // 格式筛选
+  const [formatFilter, setFormatFilter] = useState<string | null>(null); // null=全部, ".gif"=GIF, "static"=静态图
+
   const [showImport, setShowImport] = useState(false);
   const [impWork, setImpWork] = useState("");
   const [impScene, setImpScene] = useState("");
   const [impEpisode, setImpEpisode] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const loadByWork = useCallback(async (work: string | null, offset = 0) => {
+  const loadByWork = useCallback(async (work: string | null, offset = 0, ext: string | null = null) => {
     setBusy(true);
     setError(null);
     setKeywords([]);
@@ -166,6 +169,7 @@ export function AssetsScreen({
     try {
       const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset), source: "library" });
       if (work) qs.set("work", work);
+      if (ext) qs.set("ext", ext);
       const res = await apiGet<MaterialListResponse>(`/materials?${qs.toString()}`);
       setItems(fromList(res.items ?? []));
       setTotal(res.total_indexed ?? 0);
@@ -177,22 +181,22 @@ export function AssetsScreen({
     }
   }, []);
 
-  const goToPage = useCallback((p: number, work: string | null) => {
+  const goToPage = useCallback((p: number, work: string | null, ext: string | null) => {
     const clamped = Math.max(1, Math.min(totalPages, p));
     setPage(clamped);
-    loadByWork(work, (clamped - 1) * PAGE_SIZE);
+    loadByWork(work, (clamped - 1) * PAGE_SIZE, ext);
   }, [totalPages, loadByWork]);
 
   /** 切换筛选 → 回到第一页 */
-  const refreshPage1 = useCallback((work: string | null) => {
+  const refreshPage1 = useCallback((work: string | null, ext: string | null) => {
     setPage(1);
-    loadByWork(work, 0);
+    loadByWork(work, 0, ext);
   }, [loadByWork]);
 
   const search = useCallback(async (q: string) => {
     const term = q.trim();
     if (!term) {
-      await refreshPage1(null);
+      await refreshPage1(null, formatFilter);
       setActiveWork(null);
       return;
     }
@@ -269,7 +273,7 @@ export function AssetsScreen({
       const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
       throw new Error(d?.detail?.message || "裁切保存失败");
     }
-    await refreshPage1(activeWork);
+    await refreshPage1(activeWork, formatFilter);
   }
 
   /** 覆盖原图：blob → FormData → PATCH /materials/{id}/replace */
@@ -281,7 +285,7 @@ export function AssetsScreen({
       const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
       throw new Error(d?.detail?.message || "覆盖失败");
     }
-    await refreshPage1(activeWork);
+    await refreshPage1(activeWork, formatFilter);
   }
 
   /** 重命名：PATCH /materials/{id} */
@@ -293,7 +297,7 @@ export function AssetsScreen({
       const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
       throw new Error(d?.detail?.message || "重命名失败");
     }
-    await refreshPage1(activeWork);
+    await refreshPage1(activeWork, formatFilter);
   }
 
   async function doImport() {
@@ -330,7 +334,7 @@ export function AssetsScreen({
       setOk(`已导入 ${saved.stem}${saved.url ? "" : "（未生成可访问地址）"}`);
       setShowImport(false);
       if (fileRef.current) fileRef.current.value = "";
-      await refreshPage1(activeWork);
+      await refreshPage1(activeWork, formatFilter);
     } catch (e) {
       setError(e instanceof Error ? e.message : "导入失败");
     } finally {
@@ -415,11 +419,12 @@ export function AssetsScreen({
             : `${activeWork ?? "全部作品"} · 显示 ${items.length}/${total} 条`
         }
         action={
-          query || activeWork ? (
+          query || activeWork || formatFilter ? (
             <ButtonSecondary
               onClick={() => {
                 setActiveWork(null);
-                void loadByWork(null);
+                setFormatFilter(null);
+                void refreshPage1(null, null);
               }}
               disabled={busy}
             >
@@ -431,10 +436,11 @@ export function AssetsScreen({
         <div className="mb-4 flex flex-wrap gap-2">
           <Chip
             label="全部"
-            active={activeWork === null && !query}
+            active={activeWork === null && !query && !formatFilter}
             onClick={() => {
               setActiveWork(null);
-              void loadByWork(null);
+              setFormatFilter(null);
+              void refreshPage1(null, null);
             }}
             disabled={busy}
           />
@@ -446,7 +452,7 @@ export function AssetsScreen({
               active={activeWork === w.work}
               onClick={() => {
                 setActiveWork(w.work);
-                void loadByWork(w.work);
+                void refreshPage1(w.work, formatFilter);
               }}
               disabled={busy}
             />
@@ -454,6 +460,27 @@ export function AssetsScreen({
           {works.length === 0 ? (
             <span className="text-[13px] text-tertiary">后端未返回作品分组（素材库为空或未连接）</span>
           ) : null}
+        </div>
+        {/* 格式筛选 */}
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Chip
+            label="全部格式"
+            active={!formatFilter}
+            onClick={() => { setFormatFilter(null); void refreshPage1(activeWork, null); }}
+            disabled={busy}
+          />
+          <Chip
+            label="静态图"
+            active={formatFilter === "static"}
+            onClick={() => { setFormatFilter("static"); void refreshPage1(activeWork, "static"); }}
+            disabled={busy}
+          />
+          <Chip
+            label="GIF"
+            active={formatFilter === ".gif"}
+            onClick={() => { setFormatFilter(".gif"); void refreshPage1(activeWork, ".gif"); }}
+            disabled={busy}
+          />
         </div>
 
         {items.length === 0 ? (
@@ -472,7 +499,7 @@ export function AssetsScreen({
                 />
               ))}
             </div>
-            {totalPages > 1 ? <PaginationBar page={page} total={totalPages} onGo={(p) => goToPage(p, activeWork)} disabled={busy} /> : null}
+            {totalPages > 1 ? <PaginationBar page={page} total={totalPages} onGo={(p) => goToPage(p, activeWork, formatFilter)} disabled={busy} /> : null}
           </>
         )}
       </Section>

@@ -32,6 +32,7 @@ class MaterialRepository(BaseRepository[Material]):
         source: str | None = None,
         article_id: str | None = None,
         keyword: str | None = None,
+        ext: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[Material]:
@@ -42,6 +43,11 @@ class MaterialRepository(BaseRepository[Material]):
             stmt = stmt.where(Material.source == source)
         if article_id:
             stmt = stmt.where(Material.article_id == article_id)
+        if ext:
+            if ext == "static":
+                stmt = stmt.where(Material.ext != ".gif")
+            else:
+                stmt = stmt.where(Material.ext == ext)
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(

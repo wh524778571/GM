@@ -238,6 +238,7 @@ def list_materials(
     source: str | None = None,
     article_id: str | None = None,
     keyword: str | None = None,
+    ext: str | None = None,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
@@ -248,6 +249,7 @@ def list_materials(
         source=source,
         article_id=article_id,
         keyword=keyword,
+        ext=ext,
         limit=limit,
         offset=offset,
     )
