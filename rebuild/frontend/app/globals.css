@@ -26,3 +26,20 @@ body {
 ::-webkit-scrollbar-track {
   @apply bg-root;
 }
+
+/* ── 文章编辑区排版：让正文有真实的段落 / 小标题层次 ───────────── */
+.article-body h3 {
+  @apply mb-2 mt-6 text-[17px] font-semibold leading-8 text-primary;
+}
+.article-body h4 {
+  @apply mb-1.5 mt-5 text-[15px] font-semibold leading-7 text-primary;
+}
+.article-body p {
+  @apply my-3 leading-8;
+}
+.article-body strong {
+  @apply font-semibold text-primary;
+}
+.article-body > *:first-child {
+  @apply mt-0;
+}

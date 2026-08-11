@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/Button";
@@ -28,61 +28,199 @@ const PLATFORMS = [
 ] as const;
 type PlatformKey = (typeof PLATFORMS)[number]["key"];
 
-const PLACEHOLDER_RE = /【配图(\d+)[:：](.*?)】/g;
+/** 【配图3：沧元图_破境瞬间】 */
+const PH_RE = /【配图(\d+)\s*[:：]\s*([^】]*)】/g;
 
-/** 把浏览器显示用的代理 url 还原成后端存储用的 /images/... 路径。 */
-function toRawSrc(src: string): string {
-  if (src.startsWith("/api/images/")) return src.slice("/api".length);
-  return src;
-}
-/** 把后端存储的 /images/... 路径转成浏览器可加载的代理 url。 */
-function safeProxy(src: string): string {
-  return toImageProxyUrl(src) ?? src;
-}
+type ImgMap = Record<string, string>; // "【配图N：描述】" -> "/images/xxx.jpeg"
 
-/** 把正文里的【配图N：描述】标记替换成内联 <img>（仅当 image_sources 里有对应素材）。 */
-function markersToImages(html: string, imgMap: Record<string, string>): string {
-  return html.replace(PLACEHOLDER_RE, (_m, idx, desc) => {
-    const ph = `【配图${idx}：${desc.trim()}】`;
-    const stem = imgMap[ph];
-    if (!stem) return ph; // 没绑素材先保留标记
-    const src = safeProxy(stem.startsWith("/") ? stem : `/images/${stem}`);
-    return `<img src="${src}" data-index="${idx}" data-stem="${stem}" alt="${desc.trim()}" />`;
-  });
+const phKey = (n: string | number, desc: string) => `【配图${n}：${desc.trim()}】`;
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-/** 当前正文中下一个配图序号（标记 + 内联图片都算）。 */
-function nextImageIndex(html: string): number {
-  const markers = html.match(/【配图\d+[:：]/g) ?? [];
-  const imgs = html.match(/data-index="(\d+)"/g) ?? [];
-  const nums = [
-    ...markers.map((m) => parseInt(m.replace(/\D/g, ""), 10)),
-    ...imgs.map((m) => parseInt(m.replace(/\D/g, ""), 10)),
-  ].filter((n) => !Number.isNaN(n));
-  return (nums.length ? Math.max(...nums) : 0) + 1;
+/** 后端存储路径 -> 浏览器可加载的同源代理 url */
+function proxy(stem: string): string {
+  const raw = stem.startsWith("/") ? stem : `/images/${stem}`;
+  return toImageProxyUrl(raw) ?? raw;
 }
 
-/** 把富文本 DOM 转回「含【配图N】标记」的纯文本，供复制/存储。 */
-function htmlToPlainWithMarkers(root: HTMLElement): string {
-  let out = "";
-  root.childNodes.forEach((node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += node.textContent ?? "";
-    } else if (node.nodeName === "IMG") {
-      const el = node as HTMLImageElement;
-      const idx = el.dataset.index ?? "?";
-      const stem = (el.dataset.stem ?? "").split("/").pop() ?? "";
-      out += `【配图${idx}：${stem}】`;
-    } else if (node.nodeName === "BR") {
-      out += "\n";
-    } else if (node.nodeName === "DIV" || node.nodeName === "P") {
-      out += htmlToPlainWithMarkers(node as HTMLElement) + "\n";
-    } else {
-      out += htmlToPlainWithMarkers(node as HTMLElement);
+/* ------------------------------------------------------------------ *
+ * 渲染：带【配图N】标记的纯文本  ->  编辑区 DOM
+ * ------------------------------------------------------------------ */
+
+const IMG_BOX =
+  "my-3 overflow-hidden rounded-btn border border-subtle bg-raised";
+const PH_BOX =
+  "ph-slot my-3 flex cursor-pointer items-center gap-3 rounded-btn border border-dashed border-accent/50 bg-accent/5 px-4 py-3 text-[13px] text-secondary transition hover:border-accent hover:bg-accent/10";
+
+function figureHtml(n: string, desc: string, stem: string): string {
+  const d = escapeHtml(desc.trim());
+  return (
+    `<figure data-img="${n}" data-desc="${d}" data-stem="${escapeHtml(stem)}" contenteditable="false" class="${IMG_BOX}">` +
+    `<img src="${escapeHtml(proxy(stem))}" alt="${d}" class="block max-h-[420px] w-full object-contain bg-black/20" />` +
+    `<figcaption data-ui="1" class="flex items-center gap-2 border-t border-subtle px-3 py-1.5 text-xs text-tertiary">` +
+    `<span>配图${n} · ${d}</span>` +
+    `<button type="button" data-act="change" class="ml-auto rounded px-2 py-0.5 text-accent hover:bg-accent/10">换图</button>` +
+    `<button type="button" data-act="remove" class="rounded px-2 py-0.5 text-tertiary hover:bg-white/5">移除</button>` +
+    `</figcaption></figure>`
+  );
+}
+
+function slotHtml(n: string, desc: string): string {
+  const d = escapeHtml(desc.trim());
+  return (
+    `<div data-ph="${n}" data-desc="${d}" contenteditable="false" class="${PH_BOX}">` +
+    `<span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent/15 text-[11px] font-semibold text-accent">${n}</span>` +
+    `<span class="font-medium text-primary">${d || "待配图"}</span>` +
+    `<span data-ui="1" class="ml-auto text-xs text-accent">点击从素材库选图 →</span>` +
+    `</div>`
+  );
+}
+
+/** 行内 markdown：**粗体** */
+function inline(text: string): string {
+  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+/** 把「带标记的纯文本」渲染成编辑区 HTML（段落 / 小标题 / 图片 / 占位卡片）。 */
+function renderBody(text: string, imgMap: ImgMap): string {
+  const lines = (text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const blocks: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // 整行就是一个配图标记 -> 独立成块
+    const only = line.match(/^【配图(\d+)\s*[:：]\s*([^】]*)】$/);
+    if (only) {
+      const [, n, desc] = only;
+      const stem = imgMap[phKey(n, desc)];
+      blocks.push(stem ? figureHtml(n, desc, stem) : slotHtml(n, desc));
+      continue;
     }
-  });
-  return out;
+
+    // 行内混有配图标记 -> 先出文字块，再出图块
+    if (PH_RE.test(line)) {
+      PH_RE.lastIndex = 0;
+      let cursor = 0;
+      let m: RegExpExecArray | null;
+      while ((m = PH_RE.exec(line)) !== null) {
+        const before = line.slice(cursor, m.index).trim();
+        if (before) blocks.push(`<p>${inline(before)}</p>`);
+        const stem = imgMap[phKey(m[1], m[2])];
+        blocks.push(stem ? figureHtml(m[1], m[2], stem) : slotHtml(m[1], m[2]));
+        cursor = m.index + m[0].length;
+      }
+      const tail = line.slice(cursor).trim();
+      if (tail) blocks.push(`<p>${inline(tail)}</p>`);
+      PH_RE.lastIndex = 0;
+      continue;
+    }
+
+    if (line.startsWith("### ")) {
+      blocks.push(`<h4>${inline(line.slice(4))}</h4>`);
+    } else if (line.startsWith("## ")) {
+      blocks.push(`<h3>${inline(line.slice(3))}</h3>`);
+    } else if (line.startsWith("# ")) {
+      blocks.push(`<h3>${inline(line.slice(2))}</h3>`);
+    } else {
+      blocks.push(`<p>${inline(line)}</p>`);
+    }
+  }
+
+  if (!blocks.length) blocks.push("<p><br /></p>");
+  return blocks.join("");
 }
+
+/* ------------------------------------------------------------------ *
+ * 序列化：编辑区 DOM -> 带标记的纯文本 + 图片绑定
+ * ------------------------------------------------------------------ */
+
+interface Serialized {
+  text: string;
+  bound: ImgMap; // 本平台已配好的图
+  slots: string[]; // 本平台出现过的所有占位 key（用于清理旧绑定）
+}
+
+function serialize(root: HTMLElement): Serialized {
+  const bound: ImgMap = {};
+  const slots: string[] = [];
+  const out: string[] = [];
+
+  const walk = (nodes: NodeListOf<ChildNode> | ChildNode[]) => {
+    nodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const t = (node.textContent ?? "").trim();
+        if (t) out.push(t);
+        return;
+      }
+      if (!(node instanceof HTMLElement)) return;
+
+      if (node.tagName === "FIGURE" && node.dataset.img) {
+        const key = phKey(node.dataset.img, node.dataset.desc ?? "");
+        slots.push(key);
+        if (node.dataset.stem) bound[key] = node.dataset.stem;
+        out.push(key);
+        return;
+      }
+      if (node.dataset.ph) {
+        const key = phKey(node.dataset.ph, node.dataset.desc ?? "");
+        slots.push(key);
+        out.push(key);
+        return;
+      }
+      if (node.tagName === "H3") {
+        const t = node.innerText.trim();
+        if (t) out.push(`## ${t}`);
+        return;
+      }
+      if (node.tagName === "H4") {
+        const t = node.innerText.trim();
+        if (t) out.push(`### ${t}`);
+        return;
+      }
+      // 块级容器里若还嵌着图 / 占位，递归处理，否则直接取文字
+      if (node.querySelector("figure[data-img],[data-ph]")) {
+        walk(node.childNodes);
+        return;
+      }
+      const t = node.innerText.trim();
+      if (t) out.push(t);
+    });
+  };
+
+  walk(root.childNodes);
+  return { text: out.join("\n\n"), bound, slots };
+}
+
+/** 旧数据兼容：早期存过 HTML，这里降级回「标记文本 + 绑定」。 */
+function htmlToMarkerText(html: string): { text: string; bound: ImgMap } {
+  const box = document.createElement("div");
+  box.innerHTML = html;
+  const bound: ImgMap = {};
+  box.querySelectorAll("img").forEach((img) => {
+    const n = img.getAttribute("data-index") ?? "";
+    const stem = img.getAttribute("data-stem") ?? "";
+    const desc = img.getAttribute("alt") ?? "";
+    const key = phKey(n || "1", desc);
+    if (stem) bound[key] = stem;
+    img.replaceWith(document.createTextNode(`\n${key}\n`));
+  });
+  box.querySelectorAll("div,p,br,h1,h2,h3,h4").forEach((el) => {
+    el.append(document.createTextNode("\n"));
+  });
+  return { text: (box.innerText || box.textContent || "").trim(), bound };
+}
+
+const looksLikeHtml = (s: string) => /<(img|div|p|figure|br)\b/i.test(s);
+
+/* ------------------------------------------------------------------ */
 
 export function ArticleEditorScreen() {
   const router = useRouter();
@@ -93,52 +231,66 @@ export function ArticleEditorScreen() {
 
   const [active, setActive] = useState<PlatformKey>("toutiao");
   const [titles, setTitles] = useState<Record<string, string>>({});
-  const htmls = useRef<Record<string, string>>({});
   const [loading, setLoading] = useState(Boolean(articleId));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [imgCount, setImgCount] = useState(0);
+  const [pickerQuery, setPickerQuery] = useState("");
+  const [stat, setStat] = useState({ imgs: 0, slots: 0, chars: 0 });
 
+  const texts = useRef<Record<string, string>>({});
+  const imgMap = useRef<ImgMap>({});
   const editorRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
+  /** 正在等待选图的目标：占位卡片 / 要换的图 / 光标插入 */
+  const pending = useRef<{ mode: "slot" | "change" | "cursor"; el?: HTMLElement }>({
+    mode: "cursor",
+  });
 
-  function setOkMsg(msg: string) {
-    setOk(msg);
+  const setOkMsg = (m: string) => {
+    setOk(m);
     setError(null);
-  }
-  function setErr(msg: string) {
-    setError(msg);
+  };
+  const setErr = (m: string) => {
+    setError(m);
     setOk(null);
-  }
+  };
 
-  /** 把当前编辑区内容捕获进 htmls（转回存储格式），并标记脏。 */
+  const refreshStat = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    setStat({
+      imgs: el.querySelectorAll("figure[data-img]").length,
+      slots: el.querySelectorAll("[data-ph]").length,
+      chars: el.innerText.replace(/\s/g, "").length,
+    });
+  }, []);
+
+  /** 捕获当前编辑区 -> texts / imgMap */
   const captureCurrent = useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
-    let html = el.innerHTML;
-    // 存储用 /images/... 原始路径
-    html = html.replace(/src="\/api\/images\//g, 'src="/images/');
-    htmls.current[active] = html;
+    const { text, bound, slots } = serialize(el);
+    texts.current[active] = text;
+    // 本平台出现过的占位：先清旧绑定，再写回当前绑定（支持"移除图片"）
+    slots.forEach((k) => delete imgMap.current[k]);
+    Object.assign(imgMap.current, bound);
     dirty.current = true;
   }, [active]);
 
-  /** 把某平台内容载入编辑区（转成可显示的代理 url）。 */
   const loadPlatform = useCallback(
     (key: PlatformKey) => {
       const el = editorRef.current;
       if (!el) return;
-      let html = htmls.current[key] ?? "";
-      html = html.replace(/src="\/images\//g, 'src="/api/images/');
-      el.innerHTML = html;
-      setImgCount(el.querySelectorAll("img").length);
+      el.innerHTML = renderBody(texts.current[key] ?? "", imgMap.current);
+      refreshStat();
     },
-    [],
+    [refreshStat],
   );
 
-  // 加载文章（带 articleId 或无参回退全局 store）
+  // 加载文章：数据写进 ref，由下方 layoutEffect 负责真正渲染到 DOM
   useEffect(() => {
     if (!articleId) {
       setLoading(false);
@@ -150,192 +302,263 @@ export function ArticleEditorScreen() {
     apiGet<ArticleOut>(`/articles/${articleId}`)
       .then((a) => {
         if (!alive) return;
-        const imgMap: Record<string, string> = {};
-        for (const [ph, val] of Object.entries(a.image_sources ?? {})) {
-          if (typeof val === "string" && val) imgMap[ph] = val;
+        const map: ImgMap = {};
+        for (const [k, v] of Object.entries(a.image_sources ?? {})) {
+          if (typeof v === "string" && v) map[k] = v;
         }
         const contents = a.contents ?? {};
         const built: Record<string, string> = {};
         for (const p of PLATFORMS) {
-          const raw = contents[p.key] ?? a.content_text ?? "";
-          built[p.key] = markersToImages(raw, imgMap);
+          const raw = String(contents[p.key] || a.content_text || "");
+          if (looksLikeHtml(raw)) {
+            const { text, bound } = htmlToMarkerText(raw);
+            built[p.key] = text;
+            Object.assign(map, bound);
+          } else {
+            built[p.key] = raw;
+          }
         }
-        htmls.current = built;
+        texts.current = built;
+        imgMap.current = map;
         setTitles(a.titles ?? { toutiao: a.title });
         setActive("toutiao");
-        requestAnimationFrame(() => loadPlatform("toutiao"));
       })
       .catch((e) => alive && setErr((e as ApiError).message || "加载失败"))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
-    // 仅在 articleId 变化时重载（切换平台不重拉）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [articleId]);
 
-  // 切换平台：先捕获当前，再载入目标
+  // 非 loading 且 active 平台就绪时，把对应正文真正渲染进编辑区
+  useLayoutEffect(() => {
+    if (loading) return;
+    loadPlatform(active);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, active]);
+
+  // contenteditable=false 的占位卡片 / 图片工具栏，用原生事件委托更稳
+  // 注意：必须在编辑器区域渲染后再绑定
+  useLayoutEffect(() => {
+    if (loading) return;
+    const el = editorRef.current;
+    if (!el) return;
+    const onNativeClick = (e: MouseEvent) => handleEditorAction(e.target as HTMLElement);
+    el.addEventListener("click", onNativeClick);
+    return () => el.removeEventListener("click", onNativeClick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
   function switchPlatform(key: PlatformKey) {
     if (key === active) return;
     captureCurrent();
     setActive(key);
-    loadPlatform(key);
+    requestAnimationFrame(() => loadPlatform(key));
   }
 
   function scheduleSave() {
     dirty.current = true;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      void flushSave();
-    }, 900);
+    saveTimer.current = setTimeout(() => void flushSave(), 900);
   }
 
   async function flushSave() {
-    if (!articleId || !dirty.current) return;
+    if (!articleId) return;
     captureCurrent();
-    const payload = {
-      title: titles.toutiao?.trim() || "未命名文章",
-      titles,
-      contents: { ...htmls.current },
-      status: "draft",
-    };
     try {
-      await apiPatch<ArticleOut>(`/articles/${articleId}`, payload);
+      await apiPatch<ArticleOut>(`/articles/${articleId}`, {
+        title: titles.toutiao?.trim() || "未命名文章",
+        titles,
+        contents: { ...texts.current },
+        image_sources: { ...imgMap.current },
+        status: "draft",
+      });
       dirty.current = false;
-      setOkMsg("已自动保存");
+      setOkMsg("已保存");
     } catch (e) {
-      setErr((e as ApiError).message || "自动保存失败");
+      setErr((e as ApiError).message || "保存失败");
     }
   }
 
-  function onTitleChange(key: PlatformKey, value: string) {
-    setTitles((prev) => ({ ...prev, [key]: value }));
-    scheduleSave();
-  }
-
   function onEdit() {
-    setImgCount(editorRef.current?.querySelectorAll("img").length ?? 0);
+    refreshStat();
     scheduleSave();
   }
 
-  function insertImage() {
+  /** 处理占位卡片 / 图片工具栏的交互 */
+  function handleEditorAction(target: HTMLElement) {
+    const actBtn = target.closest<HTMLElement>("[data-act]");
+    if (actBtn) {
+      const fig = actBtn.closest<HTMLElement>("figure[data-img]");
+      if (!fig) return;
+      if (actBtn.dataset.act === "remove") {
+        const n = fig.dataset.img ?? "1";
+        const desc = fig.dataset.desc ?? "";
+        fig.outerHTML = slotHtml(n, desc);
+        onEdit();
+        setOkMsg("已移除该图，占位还在原处");
+      } else {
+        pending.current = { mode: "change", el: fig };
+        setPickerQuery((fig.dataset.desc ?? "").split("_")[0] ?? "");
+        setPickerOpen(true);
+      }
+      return;
+    }
+
+    const slot = target.closest<HTMLElement>("[data-ph]");
+    if (slot) {
+      pending.current = { mode: "slot", el: slot };
+      setPickerQuery((slot.dataset.desc ?? "").split("_")[0] ?? "");
+      setPickerOpen(true);
+    }
+  }
+
+  function onEditorClick(e: React.MouseEvent<HTMLDivElement>) {
+    handleEditorAction(e.target as HTMLElement);
+  }
+
+  /** contentEditable 内部的 contenteditable=false 子元素，mousedown 更稳 */
+  function onEditorMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    const t = e.target as HTMLElement;
+    if (t.closest("[data-ph],figure[data-img]")) {
+      e.preventDefault();
+      handleEditorAction(t);
+    }
+  }
+
+  /** 工具条「插入图片」：在光标处新增一个图块 */
+  function insertAtCursor() {
+    pending.current = { mode: "cursor" };
+    setPickerQuery("");
     setPickerOpen(true);
+  }
+
+  function nextIndex(): number {
+    const el = editorRef.current;
+    if (!el) return 1;
+    const nums: number[] = [];
+    el.querySelectorAll<HTMLElement>("figure[data-img],[data-ph]").forEach((n) => {
+      const v = parseInt(n.dataset.img ?? n.dataset.ph ?? "", 10);
+      if (!Number.isNaN(v)) nums.push(v);
+    });
+    return (nums.length ? Math.max(...nums) : 0) + 1;
   }
 
   function handlePick(m: { id: number; stem: string; url: string | null }) {
     const el = editorRef.current;
     if (!el) return;
-    const n = nextImageIndex(el.innerHTML);
-    const raw = m.stem.startsWith("/") ? m.stem : `/images/${m.stem}`;
-    const src = m.url ?? safeProxy(raw);
-    const img = document.createElement("img");
-    img.src = src;
-    img.setAttribute("data-index", String(n));
-    img.setAttribute("data-stem", raw);
-    img.alt = m.stem;
-    img.className = "max-h-80 my-2 w-full cursor-pointer rounded object-cover";
-    img.onclick = (e) => {
-      e.stopPropagation();
-      void copyImage(img);
-    };
+    const stem = m.stem.startsWith("/") ? m.stem : `/images/${m.stem}`;
+    const { mode, el: targetEl } = pending.current;
 
-    const markerRe = new RegExp(`【配图${n}[:：][^】]*】`);
-    const html = el.innerHTML;
-    if (markerRe.test(html)) {
-      // 自动替换同序号占位标记，省去手动删标记
-      el.innerHTML = html.replace(markerRe, img.outerHTML);
-    } else {
+    if (mode === "cursor" || !targetEl) {
+      const n = nextIndex();
+      const html = figureHtml(String(n), m.stem, stem);
       const sel = window.getSelection();
       if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
-        const range = sel.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(img);
-        range.setStartAfter(img);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        const block =
+          (sel.anchorNode as HTMLElement)?.nodeType === Node.ELEMENT_NODE
+            ? (sel.anchorNode as HTMLElement)
+            : sel.anchorNode?.parentElement;
+        const anchor = block?.closest("p,h3,h4,figure,div[data-ph]");
+        if (anchor && el.contains(anchor)) anchor.insertAdjacentHTML("afterend", html);
+        else el.insertAdjacentHTML("beforeend", html);
       } else {
-        el.appendChild(img);
+        el.insertAdjacentHTML("beforeend", html);
       }
+    } else {
+      const n = targetEl.dataset.img ?? targetEl.dataset.ph ?? String(nextIndex());
+      const desc = targetEl.dataset.desc || m.stem;
+      targetEl.outerHTML = figureHtml(n, desc, stem);
     }
+
     setPickerOpen(false);
-    setImgCount(el.querySelectorAll("img").length);
+    pending.current = { mode: "cursor" };
     onEdit();
+    setOkMsg("已插入到该位置");
+  }
+
+  /* -------------------- 复制：图片转 base64 内联 -------------------- */
+
+  async function toDataUrl(src: string): Promise<string | null> {
+    try {
+      const blob = await (await fetch(src)).blob();
+      return await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(String(fr.result));
+        fr.onerror = rej;
+        fr.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
   }
 
   async function copyPlatform(key: PlatformKey) {
-    const el = editorRef.current;
-    if (!el || key !== active) {
-      // 复制非当前平台时，临时载入该平台内容
-      const tmp = document.createElement("div");
-      tmp.innerHTML = (htmls.current[key] ?? "").replace(/src="\/images\//g, 'src="/api/images/');
-      await copyFromElement(tmp, PLATFORMS.find((p) => p.key === key)!.label);
-      return;
-    }
-    await copyFromElement(el, PLATFORMS.find((p) => p.key === key)!.label);
-  }
+    if (key === active) captureCurrent();
+    const text = texts.current[key] ?? "";
+    const box = document.createElement("div");
+    box.innerHTML = renderBody(text, imgMap.current);
 
-  async function copyFromElement(el: HTMLElement, label: string) {
-    const html = el.innerHTML.replace(/src="\/images\//g, 'src="/api/images/');
-    const plain = htmlToPlainWithMarkers(el);
+    // 去掉界面元素 + 未配图的占位卡片
+    box.querySelectorAll("[data-ui]").forEach((n) => n.remove());
+    const emptySlots = box.querySelectorAll("[data-ph]");
+    emptySlots.forEach((n) => n.remove());
+
+    // 图片内联成 base64，粘到平台编辑器才能直出
+    const imgs = Array.from(box.querySelectorAll("img"));
+    setBusy(true);
+    await Promise.all(
+      imgs.map(async (img) => {
+        const d = await toDataUrl(img.getAttribute("src") ?? "");
+        if (d) img.setAttribute("src", d);
+        img.removeAttribute("class");
+      }),
+    );
+    setBusy(false);
+
+    box.querySelectorAll("figure").forEach((f) => f.removeAttribute("class"));
+    const html = box.innerHTML;
+    const plain = text.replace(PH_RE, (full, n, desc) =>
+      imgMap.current[phKey(n, desc)] ? "" : full,
+    );
+    const label = PLATFORMS.find((p) => p.key === key)!.label;
+    const skipped = emptySlots.length;
+
     try {
-      const item = new ClipboardItem({
-        "text/html": new Blob([html], { type: "text/html" }),
-        "text/plain": new Blob([plain], { type: "text/plain" }),
-      });
-      await navigator.clipboard.write([item]);
-      setOkMsg(`已复制「${label}」图文，去平台直接粘贴（能粘图的编辑器图片直出）`);
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+        }),
+      ]);
+      setOkMsg(
+        `已复制「${label}」图文（${imgs.length} 张图已内联）` +
+          (skipped ? ` · 跳过 ${skipped} 处未配图占位` : "") +
+          "，去平台编辑器直接粘贴",
+      );
     } catch {
       await navigator.clipboard.writeText(plain);
-      setOkMsg(`已复制「${label}」文本（图片请单张复制后再粘）`);
+      setOkMsg(`已复制「${label}」文字（浏览器不支持图文复制）`);
     }
   }
 
-  /** 单张图片复制（二进制，粘贴到多数平台编辑器直出）。 */
-  async function copyImage(img: HTMLImageElement) {
-    const url = img.getAttribute("src");
-    if (!url) return;
-    try {
-      const blob = await (await fetch(url)).blob();
-      const Ctor = (window as unknown as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
-      if (!navigator.clipboard || typeof Ctor === "undefined") throw new Error("unsupported");
-      await navigator.clipboard.write([new Ctor({ [blob.type || "image/png"]: blob })]);
-      setOkMsg(`已复制图片，可在平台编辑器直接粘贴`);
-    } catch {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${img.dataset.stem?.split("/").pop() ?? "image"}.png`;
-      a.click();
-      setOkMsg("浏览器不支持直接复制图片，已改为下载");
-    }
-  }
+  /* -------------------- 去 AI 味 / 标题 -------------------- */
 
-  /** 去 AI 味：润色当前平台文本，保留已插入图片位置。 */
   async function humanize() {
-    const el = editorRef.current;
-    if (!el || !articleId) return;
+    if (!articleId) return;
+    captureCurrent();
     setBusy(true);
-    setErr("");
+    setError(null);
     try {
-      // 用 [IMG{i}] 占位保留图片顺序，避免被润色改掉
-      const clone = el.cloneNode(true) as HTMLElement;
-      const imgs = Array.from(clone.querySelectorAll("img"));
-      imgs.forEach((img, i) => {
-        img.replaceWith(document.createTextNode(`[IMG${i}]`));
-      });
-      const text = clone.innerText;
       const res = await apiPost<{ polished: string }>(`/articles/${articleId}/polish`, {
-        text,
+        text: texts.current[active] ?? "",
         persist: false,
       });
-      let polished = res.polished;
-      imgs.forEach((img, i) => {
-        polished = polished.replace(`[IMG${i}]`, img.outerHTML);
-      });
-      el.innerHTML = polished.replace(/src="\/images\//g, 'src="/api/images/');
-      setImgCount(el.querySelectorAll("img").length);
+      texts.current[active] = res.polished;
+      loadPlatform(active);
       onEdit();
-      setOkMsg("已去 AI 味（图片位置保留）");
+      setOkMsg("已去 AI 味（配图位置保留）");
     } catch (e) {
       setErr((e as ApiError).message || "去AI味失败");
     } finally {
@@ -343,11 +566,10 @@ export function ArticleEditorScreen() {
     }
   }
 
-  /** 一键重生成四平台特色标题。 */
   async function regenerateTitles() {
     if (!articleId) return;
     setBusy(true);
-    setErr("");
+    setError(null);
     try {
       const a = await apiPost<ArticleOut>(`/articles/${articleId}/titles`);
       setTitles(a.titles ?? titles);
@@ -375,10 +597,12 @@ export function ArticleEditorScreen() {
     );
   }
 
+  const activeLabel = PLATFORMS.find((p) => p.key === active)?.label ?? "";
+
   return (
     <AppShell
       title="文章编辑"
-      subtitle="四平台分栏 · 图片内联 · 一键复制当前平台图文去平台粘贴发布"
+      subtitle="点正文里的配图占位就能选图插进去 · 一键复制整篇图文去平台粘贴"
       actionLabel="去今日选题"
       onAction={() => router.push("/topics")}
     >
@@ -393,7 +617,6 @@ export function ArticleEditorScreen() {
         </div>
       ) : null}
 
-      {/* 平台分栏标签 */}
       <div className="mb-3 flex flex-wrap gap-2">
         {PLATFORMS.map((p) => (
           <button
@@ -408,21 +631,19 @@ export function ArticleEditorScreen() {
             }
           >
             {p.label}
-            {titles[p.key] ? "" : " · 未命名"}
           </button>
         ))}
       </div>
 
-      {/* 工具条 */}
       <div className="flex flex-wrap items-center gap-2 rounded-card border border-subtle bg-card px-4 py-3">
-        <Button className="h-9" onClick={() => void flushSave()} disabled={busy}>
-          {busy ? "处理中…" : "保存"}
+        <Button className="h-9" onClick={() => void copyPlatform(active)} disabled={busy}>
+          {busy ? "处理中…" : `复制「${activeLabel}」图文`}
         </Button>
-        <ButtonSecondary className="h-9" onClick={() => void copyPlatform(active)}>
-          复制「{PLATFORMS.find((p) => p.key === active)?.label}」图文
+        <ButtonSecondary className="h-9" onClick={() => void flushSave()}>
+          保存
         </ButtonSecondary>
-        <ButtonSecondary className="h-9" onClick={insertImage}>
-          插入图片
+        <ButtonSecondary className="h-9" onClick={insertAtCursor}>
+          在光标处插图
         </ButtonSecondary>
         <ButtonSecondary className="h-9" onClick={() => void humanize()} disabled={busy}>
           去AI味
@@ -431,23 +652,24 @@ export function ArticleEditorScreen() {
           重生成平台标题
         </ButtonSecondary>
         <span className="ml-auto text-xs text-tertiary">
-          {imgCount} 张图 · 自动保存开启
+          {stat.chars} 字 · {stat.imgs} 张图
+          {stat.slots ? ` · ${stat.slots} 处待配图` : " · 配图已齐"}
         </span>
       </div>
 
-      {/* 当前平台：标题 + 富文本（编辑复制合一） */}
       <div className="mt-4 rounded-card border border-subtle bg-card p-4">
-        <label className="mb-1.5 block text-[13px] text-secondary">
-          {PLATFORMS.find((p) => p.key === active)?.label}标题
-        </label>
+        <label className="mb-1.5 block text-[13px] text-secondary">{activeLabel}标题</label>
         <input
           value={titles[active] ?? ""}
-          onChange={(e) => onTitleChange(active, e.target.value)}
+          onChange={(e) => {
+            setTitles((prev) => ({ ...prev, [active]: e.target.value }));
+            scheduleSave();
+          }}
           placeholder="该平台特色标题"
           className="mb-3 h-9 w-full rounded-btn border border-subtle bg-raised px-3 text-[14px] font-medium text-primary focus:border-accent focus:outline-none"
         />
         {loading ? (
-          <div className="min-h-[460px] rounded-btn border border-subtle bg-raised px-3 py-3 text-[13px] text-tertiary">
+          <div className="min-h-[460px] rounded-btn border border-subtle bg-raised px-4 py-3 text-[13px] text-tertiary">
             加载中…
           </div>
         ) : (
@@ -457,18 +679,21 @@ export function ArticleEditorScreen() {
             suppressContentEditableWarning
             onInput={onEdit}
             onBlur={captureCurrent}
-            className="min-h-[460px] w-full overflow-auto rounded-btn border border-subtle bg-raised px-3 py-2.5 text-[14px] leading-7 text-primary focus:border-accent focus:outline-none"
+            onClick={onEditorClick}
+            onMouseDown={onEditorMouseDown}
+            className="article-body min-h-[460px] w-full overflow-auto rounded-btn border border-subtle bg-raised px-5 py-4 text-[15px] leading-8 text-primary focus:border-accent focus:outline-none"
             style={{ wordBreak: "break-word" }}
           />
         )}
         <p className="mt-3 text-xs text-tertiary">
-          直接在这里编辑，点「插入图片」把配图放到光标处；「复制图文」按当前平台导出（能粘图的编辑器图片直出）。
-          点图片可选中后单独复制。
+          正文里虚线框就是 AI 排好位置的配图位，点一下选图即可原地填入；图片下方可「换图 / 移除」。
+          复制时图片会内联进剪贴板，粘到头条 / 百家 / 公众号编辑器图文直出。
         </p>
       </div>
 
       <MaterialPicker
         open={pickerOpen}
+        initialQuery={pickerQuery}
         onClose={() => setPickerOpen(false)}
         onPick={handlePick}
       />
