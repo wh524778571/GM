@@ -408,6 +408,59 @@ def _unfence_backtick_values(text: str) -> str:
     return pattern.sub(repl, text)
 
 
+def _repair_json_quotes(s: str) -> str:
+    """尽力修复模型在 JSON 字符串值里漏转义的英文双引号。
+
+    典型坏样本：`` {"core": "这集把"为众生"的主题推高了"} `` —— 内部的 "为众生" 没转义，
+    会让 ``json.loads`` 在第一个内部引号处报 ``Expecting ',' delimiter``，整篇生成崩溃。
+
+    启发式：只在「字符串内部」（由最外层未转义 ``"`` 界定）做判断。
+    遇到一个未转义的 ``"`` 时，看下一个有效字符：
+      - 是 ``:``（键结束）/ ``,`` ``}`` ``]``（值或对象/数组结束）→ 视为合法结束引号，保留；
+      - 否则 → 视为字符串内部的未转义引号，改写成 ``\\"``。
+    已转义的引号（``\\"``）与结构字符不受影响。仅作用于我们这类「顶层对象是平铺字符串字段」
+    的输出，足以救回绝大多数漏转义场景。
+    """
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    in_string = False
+    escaped = False
+    while i < n:
+        c = s[i]
+        if not in_string:
+            out.append(c)
+            if c == '"':
+                in_string = True
+                escaped = False
+            i += 1
+            continue
+        # 字符串内部
+        if escaped:
+            out.append(c)
+            escaped = False
+        elif c == "\\":
+            out.append(c)
+            escaped = True
+        elif c == '"':
+            # 看下一个有效字符，判断这是结束引号还是内部引号
+            j = i + 1
+            while j < n and s[j] in " \t\n\r":
+                j += 1
+            nxt = s[j] if j < n else ""
+            if nxt in (":", ",", "}", "]"):
+                out.append(c)  # 合法结束引号
+                in_string = False
+                escaped = False
+            else:
+                out.append('\\"')  # 内部未转义引号 → 重新转义
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 def _parse_retry_after(headers: Iterable | None) -> float | None:
     if not headers:
         return None
@@ -464,8 +517,13 @@ def extract_json_object(raw: str) -> dict:
     candidate = re.sub(r",(\s*[}\]])", r"\1", candidate)
     try:
         data = json.loads(candidate)
-    except json.JSONDecodeError as exc:
-        raise AIResponseError(f"模型输出 JSON 解析失败：{exc}；原文：{_truncate(candidate)}") from exc
+    except json.JSONDecodeError:
+        # 最后一道防线：模型常在字符串值里漏转义英文双引号（如 "为众生"），
+        # 用启发式把它重新转义成 \"，能救回绝大多数坏 JSON，避免整篇生成崩溃。
+        try:
+            data = json.loads(_repair_json_quotes(candidate))
+        except json.JSONDecodeError as exc:
+            raise AIResponseError(f"模型输出 JSON 解析失败：{exc}；原文：{_truncate(candidate)}") from exc
     if not isinstance(data, dict):
         raise AIResponseError("模型输出的 JSON 顶层不是对象")
     return data
