@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import hashlib
 
-from .style_rules import STYLE_GUIDE, STRUCTURE_HINTS, DEPTH_GUIDE, VOICE_GUIDE
+from .style_rules import STYLE_GUIDE, STRUCTURE_HINTS, DEPTH_GUIDE, VOICE_GUIDE, JSON_RULE
 
 # ══════════════════════════════════════════════════════════════
 # 以下常量逐字来自归档文件，禁止修改（改动会被 verify_prompt_parity.py 拦截）
@@ -179,7 +179,7 @@ def build_user_prompt(title: str, article_type: str = "depth", requirement: str 
         req_text = DEFAULT_REQUIREMENT
     # 追加账号文风铁律（来自 用户偏好.md / 操作手册），保证每次生成都吃到，
     # 不改动 parity 保护的 SYSTEM_PROMPT / PROMPTS_BASE。
-    req_text = f"{req_text}\n{STYLE_GUIDE}\n{DEPTH_GUIDE}\n{VOICE_GUIDE}"
+    req_text = f"{req_text}\n{STYLE_GUIDE}\n{DEPTH_GUIDE}\n{VOICE_GUIDE}\n{JSON_RULE}"
     if article_type in STRUCTURE_HINTS:
         req_text = f"{req_text}\n{STRUCTURE_HINTS[article_type]}"
     return template.format(title=title, requirement=req_text)

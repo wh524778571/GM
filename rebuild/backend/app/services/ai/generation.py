@@ -40,7 +40,7 @@ from app.services.ai.provider import AIProvider, extract_json_object
 from app.services.image_matching.matcher import ImageMatcherService
 from app.services.rendering import RenderResult, RenderService
 from app.services.text_utils import strip_emoji
-from app.services.ai.style_rules import PLATFORM_ANGLES, DEPTH_GUIDE, VOICE_GUIDE
+from app.services.ai.style_rules import PLATFORM_ANGLES, DEPTH_GUIDE, VOICE_GUIDE, JSON_RULE
 
 # 进度回调：(stage, percent, message) → None。生成耗时 30–120s，
 # 异步任务据此上报真实阶段，前端才能画出不骗人的进度条。
@@ -303,6 +303,38 @@ class GenerationService:
         assert last_exc is not None
         raise last_exc
 
+    def _generate_json(
+        self,
+        user_prompt: str,
+        *,
+        temperature: float,
+        max_tokens: int,
+        extra2: str,
+        system_prompt: str = SYSTEM_PROMPT,
+    ) -> dict:
+        """调用模型并解析 JSON：provider 报错 **或** JSON 解析失败，都会自动追加 extra2
+        重试一次（降温到 ≤0.4）。这是修复「英文双引号破坏 JSON 结构导致整篇生成崩溃」的关键——
+        原先重试只在 provider 层触发，JSON 解析失败发生在 provider 返回之后、重试根本来不及生效；
+        现在把解析也并进重试环，extra2 里的「禁用英文双引号」等结构体约束才能在第二次尝试中真正纠正模型。
+
+        全部失败上抛 GenerationError（stage="parse"），由调用方决定兜底，绝不返回假数据。
+        """
+        last_exc: Exception | None = None
+        for attempt in (1, 2):
+            up = user_prompt + (extra2 if attempt == 2 else "")
+            temp = temperature if attempt == 1 else min(temperature, 0.4)
+            try:
+                raw = self.provider.generate(system_prompt, up, max_tokens=max_tokens, temperature=temp)
+            except (AIResponseError, GenerationError) as exc:
+                last_exc = exc
+                continue
+            try:
+                return extract_json_object(raw)
+            except AIResponseError as exc:
+                last_exc = exc
+        assert last_exc is not None
+        raise GenerationError(str(last_exc), stage="parse")
+
     def suggest_topics(
         self,
         today: str,
@@ -391,9 +423,9 @@ class GenerationService:
             "篇幅由内容自然决定，写满写透即可，不要为了凑字数而重复、注水或堆砌套话。"
             "若文中出现【配图N：...】占位符，须穿插分布在正文不同段落之间"
             "（图与图之间至少隔 2 段），禁止集中在开头或结尾。"
+            f"\n\n{JSON_RULE}"
         )
-        raw = self._call_model(user_prompt, temperature=temperature, max_tokens=max_tokens, extra2=extra2)
-        data = self._parse_json(raw)
+        data = self._generate_json(user_prompt, temperature=temperature, max_tokens=max_tokens, extra2=extra2)
         core = _coerce_text(data.get("core") or "").strip()
         # 不扩写：直接采用模型给出的母稿内容，按内容自然成稿，绝不注水/重复。
         # 仅保留垃圾短稿兜底（空稿或极短截断疑似失败），不做长度惩罚。
@@ -667,14 +699,15 @@ class GenerationService:
             f"必须用自己的口吻写（第一人称「我 / 我觉得 / 说真的」），每节都要有我的判断与分析，不是剧情复读、不是空话套话；{voice_block}"
             f"正文用统一 markdown 语法，保证渲染像文章：一律用 ## 分节小标题；**加粗**关键词；用 - 列点拆清单；用 > 引一句台词/数据；禁止任何 emoji；"
             f"{real_block_text}"
+            f"{JSON_RULE}"
             f"结尾必须有互动引导（如「评论区聊聊」）。"
         )
         extra2 = (
             f"\n\n【严格要求】输出的字段必须是完整正文，绝不是标题或一句话；"
             "字符串值绝不能用反引号 ``` 包裹。"
+            f"\n\n{JSON_RULE}"
         )
-        raw = self._call_model(user, temperature=temperature, max_tokens=max_tokens, extra2=extra2)
-        data = self._parse_json(raw)
+        data = self._generate_json(user, temperature=temperature, max_tokens=max_tokens, extra2=extra2)
         text = _coerce_text(data.get(key) or "").strip()
         # 字段整体缺失/空白 → 直接触发兜底母稿（与「偏短但非空」区分开）
         if not text:
