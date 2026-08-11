@@ -46,6 +46,7 @@ export function ImageEditor({
   const [saveMode, setSaveMode] = useState<"overwrite" | "new">("new");
   const [saveName, setSaveName] = useState("");
   const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
+  const [cropPreviewUrl, setCropPreviewUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // rename
@@ -73,16 +74,22 @@ export function ImageEditor({
     };
   }, []);
 
-  // window-level mouseup: 鼠标移到 overlay 外面松手也能正常结束拖拽
+  // window-level mouseup & cleanup
   useEffect(() => {
     const up = () => setDragging(null);
     window.addEventListener("mouseup", up);
-    return () => window.removeEventListener("mouseup", up);
-  }, []);
+    return () => {
+      window.removeEventListener("mouseup", up);
+      if (cropPreviewUrl) URL.revokeObjectURL(cropPreviewUrl);
+    };
+  }, [cropPreviewUrl]);
 
   /* ── image load ────────────────────── */
 
-  const srcBusted = reloadKey ? `${src}${src.includes("?") ? "&" : "?"}_t=${reloadKey}` : src;
+  // image src — 裁切预览用 blob URL，其它用原图
+  const srcBusted = mode === "saveDialog" && cropPreviewUrl
+    ? cropPreviewUrl
+    : reloadKey ? `${src}${src.includes("?") ? "&" : "?"}_t=${reloadKey}` : src;
 
   function onImgLoad() {
     const img = imgRef.current;
@@ -191,6 +198,10 @@ export function ImageEditor({
       c.getContext("2d")!.drawImage(imgRef.current, cropPx.x, cropPx.y, cropPx.w, cropPx.h, 0, 0, cropPx.w, cropPx.h);
       const blob = await new Promise<Blob>((res, rej) => c.toBlob((b) => b ? res(b) : rej(new Error()), "image/jpeg", 0.92));
       setCroppedBlob(blob);
+      // 释放旧 URL 防内存泄漏
+      if (cropPreviewUrl) URL.revokeObjectURL(cropPreviewUrl);
+      const preview = URL.createObjectURL(blob);
+      setCropPreviewUrl(preview);
       setSaveMode("new");
       setSaveName(stem.replace(/\.[^.]+$/, "") + "_裁切");
       setMode("saveDialog");
@@ -205,6 +216,7 @@ export function ImageEditor({
       if (saveMode === "overwrite") { await onOverwrite(croppedBlob, materialId); setMsg("✓ 已覆盖原图"); setReloadKey(k => k + 1); }
       else { const n = saveName.trim() || stem; await onSaveAsNew(croppedBlob, `${n}.jpg`); setMsg(`✓ 已另存为「${n}.jpg」`); }
       setMode("view"); setCropRect(null); setCroppedBlob(null);
+      if (cropPreviewUrl) { URL.revokeObjectURL(cropPreviewUrl); setCropPreviewUrl(null); }
     } catch (e) { setMsg(`保存失败: ${e instanceof Error ? e.message : "?"}`); }
     finally { setSaving(false); }
   }
