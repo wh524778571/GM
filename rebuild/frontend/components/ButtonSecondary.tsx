@@ -1,23 +1,11 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Button, type ButtonProps } from "./Button";
 
-/** comp-button-secondary（画布 6:71）：透明底 + border-subtle 描边，文字 text-primary，圆角 8。 */
-export interface ButtonSecondaryProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  children: ReactNode;
+/**
+ * 兼容层：旧调用方 `import { ButtonSecondary }` 继续可用，
+ * 等价于 `<Button variant="secondary" />`。统一实现已收口到 Button。
+ */
+export function ButtonSecondary(props: ButtonProps) {
+  return <Button variant="secondary" {...props} />;
 }
 
-export function ButtonSecondary({
-  children,
-  className = "",
-  type = "button",
-  ...rest
-}: ButtonSecondaryProps) {
-  return (
-    <button
-      type={type}
-      className={`inline-flex h-9 items-center justify-center rounded-btn border border-subtle bg-transparent px-4 text-sm font-medium text-primary transition-colors hover:bg-raised ${className}`}
-      {...rest}
-    >
-      {children}
-    </button>
-  );
-}
+export { Button };
