@@ -228,9 +228,9 @@ class GenerationService:
         enforcements = list(content_enforcements)
         enforcements.extend(rewrite_errors)
 
-        # 3) 标题派生（确定性，不依赖模型）
-        report_progress("titles", 86, "派生四平台标题…")
-        titles, title_enforcements = self._derive_titles(topic)
+        # 3) 标题：按平台调性 LLM 生成（失败回退确定性截断）
+        report_progress("titles", 86, "生成四平台标题…")
+        titles, title_enforcements = self._generate_titles(topic, article_type)
         enforcements.extend(title_enforcements)
 
         # 4) 配图建议（复用 image_matching，不重复实现）
@@ -577,6 +577,58 @@ class GenerationService:
                 )
             contents[key] = text
         return contents, enforcements
+
+    def _generate_titles(self, topic: str, article_type: str) -> tuple[dict[str, str], list[str]]:
+        """为四平台各生成一条符合平台调性的标题（LLM），失败时回退确定性截断。
+
+        四平台标题必须明显不同、各有平台味：头条悬念数据钩子、抖音口语有梗、
+        哔哩哔哩二次元玩梗、小红书 emoji 清单种草。模型偶发偷懒输出雷同标题，
+        此时直接回退 _derive_titles（截断选题），保证不出现"四平台同款"。
+        """
+        style = {
+            "toutiao": "悬念/数据钩子，像朋友在饭桌上安利，别标题党",
+            "douyin": "口语化、有梗、短平快，像刷到就停不下来",
+            "bilibili": "二次元梗、吐槽感、年轻化，带点玩梗语气",
+            "xhs": "emoji+清单感、第一人称、种草语气，像安利好物",
+        }
+        keys = list(self.registry.keys())
+        limits = {k: self.registry.get(k).title.max_chars for k in keys}
+        lines = "\n".join(
+            f"- {k}（{limits[k]}字内）：{style.get(k, '贴合平台调性')}" for k in keys
+        )
+        user = (
+            f"选题：{topic}\n"
+            f"文章类型：{'深度长文' if article_type == 'depth' else '盘点资讯'}\n"
+            f"各平台标题要求（含标点，必须≤字数上限）：\n{lines}\n\n"
+            "只输出 JSON，键为平台 key，值为该平台标题，四平台要明显不同：\n"
+            '{"toutiao":"...","douyin":"...","bilibili":"...","xhs":"..."}'
+        )
+        try:
+            raw = self._call_model(
+                user,
+                temperature=0.8,
+                max_tokens=400,
+                extra2="\n务必输出合法 JSON，四平台标题要明显不同、各有平台味。",
+            )
+            data = extract_json_object(raw)
+            titles: dict[str, str] = {}
+            notes: list[str] = []
+            for k in keys:
+                t = _coerce_text(data.get(k)).strip() or topic
+                limit = limits[k]
+                if len(t) > limit:
+                    t = _smart_truncate(t, limit)
+                    notes.append(
+                        f"{self.registry.get(k).name}：标题 {len(t)} 字超出 {limit} 字上限，已截断"
+                    )
+                titles[k] = t
+            # 模型偷懒输出雷同 → 回退截断选题，保证不出现四平台同款
+            if len({v for v in titles.values()}) < 2:
+                return self._derive_titles(topic)
+            return titles, notes
+        except Exception:
+            # LLM 失败绝不阻断生成，回退确定性截断
+            return self._derive_titles(topic)
 
     def _derive_titles(self, topic: str) -> tuple[dict[str, str], list[str]]:
         """按各平台标题上限派生标题。

@@ -8,6 +8,7 @@ import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { DataSourceNote } from "@/components/DataSourceNote";
 import { GenerationProgress, type JobSnapshot } from "@/components/GenerationProgress";
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/clientApi";
+import { setCurrentArticleId } from "@/lib/currentArticle";
 
 interface Topic {
   id: number;
@@ -182,6 +183,7 @@ export function TopicsScreen() {
           const aid = snap.result?.article_id;
           if (aid) {
             setOk("草稿已生成，正在打开编辑器…");
+            setCurrentArticleId(aid);
             router.push(`/writer?articleId=${aid}`);
           } else {
             setError("生成完成但未返回文章 ID");

@@ -210,6 +210,32 @@ def generate_article(
     )
 
 
+# ── 仅重生成四平台特色标题（不重跑全文生成）─────────────────────
+@router.post("/articles/{article_id}/titles", response_model=ArticleOut)
+def regenerate_titles(article_id: str, session: Session = Depends(get_session)) -> ArticleOut:
+    """只按平台调性重生成标题并写回（titles + 主标题取头条），不动正文。
+
+    用于老文章补齐"四平台各不同"的标题，避免为改个标题重跑 4 分钟全文生成。
+    """
+    article = _get_or_404(ArticleRepository(session), article_id)
+    try:
+        provider = build_provider(settings.ai_provider)
+    except AIConfigError as exc:
+        raise HTTPException(503, exc.to_dict()) from exc
+    service = GenerationService(provider, session)
+    try:
+        titles, _ = service._generate_titles(article.title or "", "depth")
+    except Exception as exc:
+        raise HTTPException(502, {"stage": "titles", "message": str(exc)}) from exc
+    repo = ArticleRepository(session)
+    repo.upsert(
+        article_id,
+        title=titles.get("toutiao") or article.title,
+        titles=titles,
+    )
+    return _to_out(repo.get_by_article_id(article_id))
+
+
 # ── 单独质检（不调 AI）────────────────────────────────────────
 @router.post("/articles/{article_id}/qa")
 def qa_article(article_id: str, session: Session = Depends(get_session)) -> dict:
