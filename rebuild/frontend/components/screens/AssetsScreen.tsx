@@ -5,6 +5,7 @@ import { AppShell, Section } from "@/components/AppShell";
 import { Button } from "@/components/Button";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { Chip } from "@/components/Chip";
+import { ImageEditor } from "@/components/ImageEditor";
 import { KpiGrid } from "@/components/KpiGrid";
 import { MaterialTile } from "@/components/MaterialTile";
 import { DataSourceNote } from "@/components/DataSourceNote";
@@ -87,6 +88,10 @@ export function AssetsScreen({
   const [ok, setOk] = useState<string | null>(null);
   const [live, setLive] = useState(materialSource === "backend");
 
+  // 图片编辑器
+  const [editorItem, setEditorItem] = useState<MaterialItem | null>(null);
+  const [editorInfo, setEditorInfo] = useState<{ width?: number; height?: number; format?: string; sizeBytes?: number }>({});
+
   const [showImport, setShowImport] = useState(false);
   const [impWork, setImpWork] = useState("");
   const [impScene, setImpScene] = useState("");
@@ -149,6 +154,50 @@ export function AssetsScreen({
     } finally {
       setBusy(false);
     }
+  }
+
+  /** 点击素材 → 打开预览/编辑弹窗，同时探测图片信息 */
+  function openEditor(item: MaterialItem) {
+    setEditorItem(item);
+    setEditorInfo({});
+    setOk(null);
+    setError(null);
+    // 异步探测图片真实尺寸
+    if (item.url) {
+      const img = new window.Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => setEditorInfo({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = () => setEditorInfo({});
+      img.src = item.url;
+      // 用 HEAD 请求取 size / format（不下载整图）
+      fetch(item.url, { method: "HEAD" })
+        .then((r) => {
+          const cl = r.headers.get("content-length");
+          const ct = r.headers.get("content-type") || "";
+          const fmt = ct.includes("png") ? "png" : ct.includes("webp") ? "webp" : ct.includes("gif") ? "gif" : ct.includes("jpeg") ? "jpeg" : "";
+          setEditorInfo((prev) => ({
+            ...prev,
+            sizeBytes: cl ? Number(cl) : undefined,
+            format: fmt || prev.format,
+          }));
+        })
+        .catch(() => {});
+    }
+  }
+
+  /** 裁切保存：blob → FormData → POST /materials */
+  async function saveCropped(blob: Blob, filename: string) {
+    const fd = new FormData();
+    fd.append("file", blob, filename);
+    const work = editorItem?.work !== "未分类" ? (editorItem?.work ?? "") : "";
+    if (work) fd.append("work", work);
+    const res = await fetch("/api/materials", { method: "POST", body: fd });
+    if (!res.ok) {
+      const d = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
+      throw new Error(d?.detail?.message || "裁切保存失败");
+    }
+    // 刷新列表
+    await loadByWork(activeWork);
   }
 
   async function doImport() {
@@ -321,6 +370,7 @@ export function AssetsScreen({
               <MaterialTile
                 key={`${item.id}-${item.stem}`}
                 item={item}
+                onClick={() => openEditor(item)}
                 onDelete={() => deleteMaterial(Number(item.id), item.stem)}
               />
             ))}
@@ -329,6 +379,27 @@ export function AssetsScreen({
       </Section>
 
       <DataSourceNote sources={[kpiSource, live ? "backend" : materialSource]} />
+
+      {editorItem?.url ? (
+        <ImageEditor
+          src={editorItem.url}
+          stem={editorItem.stem}
+          width={editorInfo.width}
+          height={editorInfo.height}
+          format={editorInfo.format}
+          sizeBytes={editorInfo.sizeBytes}
+          onClose={() => setEditorItem(null)}
+          onSaveCropped={saveCropped}
+          onCopyPath={(s) => {
+            navigator.clipboard.writeText(s).catch(() => {});
+            setOk(`已复制路径「${s}」`);
+          }}
+          onDelete={() => {
+            setEditorItem(null);
+            deleteMaterial(Number(editorItem.id), editorItem.stem);
+          }}
+        />
+      ) : null}
     </AppShell>
   );
 }
