@@ -372,33 +372,29 @@ class GenerationService:
         article_type: str,
         report: ProgressFn = _noop_progress,
     ) -> str:
-        """生成完整母稿 core（模型写单篇长文最稳），不足目标则扩写一轮。
+        """生成完整母稿 core（模型写单篇长文最稳），直接采用模型给出的内容、不扩写。
 
-        glm-4-flash 单次输出约 1400 字上限，直接要 2000–3000 往往只给 600–1300 字。
-        可靠做法：先拿连贯草稿，再喂回模型扩写到目标区间。
+        按用户要求：不凑字数、不注水，篇幅由内容自然决定；仅对空稿/极短截断做兜底。
         """
         lo, hi = CORE_RANGES.get(article_type, (2000, 3000))
         # 兜底下限取目标的 0.6：既能挡住垃圾短稿，又给 glm-4-flash 的「惯性偏短」留余量，
         # 避免因模型产出 1200–1500 字（仍属充实长文）而被误判过短、整篇生成失败。
         min_chars = int(lo * 0.6)
         extra2 = (
-            f"\n\n【严格要求】只输出一个 JSON 对象，core 字段是 {lo}–{hi} 字的完整母稿正文"
+            f"\n\n【严格要求】只输出一个 JSON 对象，core 字段是完整母稿正文"
             "（字符串，绝不用反引号 ``` 包裹），四个平台字段留空字符串即可。"
-            "core 绝不能是短句或标题。"
+            "core 绝不能是短句或标题，要写完整、有细节、有观点；"
+            "篇幅由内容自然决定，写满写透即可，不要为了凑字数而重复、注水或堆砌套话。"
             "若文中出现【配图N：...】占位符，须穿插分布在正文不同段落之间"
             "（图与图之间至少隔 2 段），禁止集中在开头或结尾。"
         )
         raw = self._call_model(user_prompt, temperature=temperature, max_tokens=max_tokens, extra2=extra2)
         data = self._parse_json(raw)
         core = _coerce_text(data.get("core") or "").strip()
-        if len(core) < lo:
-            # 草稿未达目标 → 增量式扩写（拼接累加，突破单 call 输出上限）拉到 2000+
-            report("core_expand", 32, f"母稿初稿 {len(core)} 字，扩写到 {lo} 字以上…")
-            core = self._expand_text(
-                core, lo, hi, keep_placeholders=True, max_tokens=max_tokens, temperature=0.85
-            )
-        if len(core) < min_chars:
-            raise GenerationError(f"母稿过短（{len(core)}字，需≥{min_chars}）", stage="parse")
+        # 不扩写：直接采用模型给出的母稿内容，按内容自然成稿，绝不注水/重复。
+        # 仅保留垃圾短稿兜底（空稿或极短截断疑似失败），不做长度惩罚。
+        if len(core) < 80:
+            raise GenerationError(f"母稿过短（{len(core)}字，疑似生成失败）", stage="parse")
         return core
 
     def _expand_text(
@@ -538,13 +534,13 @@ class GenerationService:
             f'只输出一个 JSON：{{"{key}":"改写后的完整正文"}}。\n'
             f"要求：风格——{rule.style}；不要只是把母稿换个说法，要按本平台读者最关心的角度重新组织内容、"
             f"用平台原生的开头钩子切入（头条用数据/悬念、B站用争议/玩梗、百家用观点/分析、小红书用情感/清单），"
-            f"四个平台要有明显不同的侧重点，而不是同一篇换四种语气；{angle_block}这是一篇约 {target} 字（±30%）的完整正文"
+            f"四个平台要有明显不同的侧重点，而不是同一篇换四种语气；{angle_block}这是一篇完整的正文（篇幅自然，写透即可，不要凑字数注水）"
             f"（绝不是标题、绝不是一句话）；"
             f"{img_instruction}正文严格禁止任何 emoji 表情符号（🔥✨💡📌 等一律不要）；用小标题、**加粗**、数字序号、引用（>）制造层次，不要依赖 emoji；"
             f"结尾必须有互动引导（如「评论区聊聊」）。"
         )
         extra2 = (
-            f"\n\n【严格要求】输出的字段必须是约 {target} 字的完整正文，绝不是标题或一句话；"
+            f"\n\n【严格要求】输出的字段必须是完整正文，绝不是标题或一句话；"
             "字符串值绝不能用反引号 ``` 包裹。"
         )
         raw = self._call_model(user, temperature=temperature, max_tokens=max_tokens, extra2=extra2)
@@ -555,20 +551,10 @@ class GenerationService:
             raise GenerationError(f"{rule.name} 改写内容缺失，兜底母稿", stage="parse")
         # glm-4-flash 单 call 约 1400–2000 字上限：未达目标先增量扩写补字，再判是否垃圾短稿
         # 扩写上限取用户「2000–3000 字」的天花板 3000（而非平台 target），让正文稳稳落在诉求区间内
-        expand_lo = int(target * 0.9)
-        expand_hi = min(target + 500, 3000)
-        if len(text) < expand_lo:
-            text = self._expand_text(
-                text,
-                expand_lo,
-                expand_hi,
-                keep_placeholders=rule.images.allowed,
-                max_tokens=max_tokens,
-                temperature=0.85,
-                max_passes=4,
-            )
-        if len(text) < low:
-            raise GenerationError(f"{rule.name} 改写过短（{len(text)}字，需≥{low}）", stage="parse")
+        # 不扩写：直接采用模型给出的平台正文，不做字数补字。
+        # 仅保留垃圾短稿兜底（空稿或极短截断疑似失败），不做长度惩罚。
+        if len(text) < 80:
+            raise GenerationError(f"{rule.name} 改写过短（{len(text)}字，疑似生成失败）", stage="parse")
         return text
 
     def _rewrite_all_platforms(
