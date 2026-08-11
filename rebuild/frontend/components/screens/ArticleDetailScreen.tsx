@@ -6,7 +6,6 @@ import { AppShell, Section } from "@/components/AppShell";
 import { Button } from "@/components/Button";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { StatusPill } from "@/components/StatusPill";
-import { PublishButton } from "@/components/PublishModal";
 import { Chip } from "@/components/Chip";
 import { KpiGrid } from "@/components/KpiGrid";
 import { PLATFORMS } from "@/lib/platforms";
@@ -162,13 +161,6 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
             <Button onClick={() => router.push(`/writer?articleId=${article.article_id}`)}>
               去编辑
             </Button>
-          ) : null}
-          {article ? (
-            <PublishButton
-              articleId={article.article_id}
-              articleTitle={article.title}
-              className="h-9"
-            />
           ) : null}
           <ButtonSecondary className="ml-auto" onClick={remove} disabled={busy}>
             删除

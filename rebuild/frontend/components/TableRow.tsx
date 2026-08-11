@@ -1,7 +1,6 @@
 "use client";
 
 import { StatusPill } from "./StatusPill";
-import { PublishButton } from "./PublishModal";
 import { PLATFORMS } from "@/lib/platforms";
 import { formatViews } from "@/lib/format";
 import type { ArticleRow } from "@/lib/types";
@@ -138,13 +137,6 @@ export function TableRow({
             >
               删
             </button>
-          ) : null}
-          {!onRestore ? (
-            <PublishButton
-              articleId={row.articleId}
-              articleTitle={row.title}
-              className="h-7 px-2.5 text-xs"
-            />
           ) : null}
         </div>
       </div>

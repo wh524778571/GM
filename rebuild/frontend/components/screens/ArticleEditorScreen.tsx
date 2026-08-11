@@ -6,6 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/Button";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { MaterialPicker } from "@/components/MaterialPicker";
+import { PublishButton } from "@/components/PublishModal";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/clientApi";
 import { copyPlainText } from "@/lib/clipboard";
 import { setCurrentArticleId, useCurrentArticleId } from "@/lib/currentArticle";
@@ -306,6 +307,10 @@ export function ArticleEditorScreen() {
   const editorRef = useRef<HTMLDivElement>(null);
   /** 实际文章 id：新建草稿创建成功后才会被填入；加载已有文章时等于 articleId */
   const effectiveId = useRef<string | null>(initialId ?? storedId ?? null);
+  /** 文章母标题（用于发布弹窗头部），加载后设置 */
+  const articleTitle = useRef<string>("");
+  /** 触发重渲染的发布就绪 id（ref 不驱动 UI） */
+  const [publishId, setPublishId] = useState<string | null>(initialId ?? storedId ?? null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
   /** 正在等待选图的目标：占位卡片 / 要换的图 / 光标插入 */
@@ -421,6 +426,8 @@ export function ArticleEditorScreen() {
         imgMap.current = map;
         const baseTitles = a.titles ?? { toutiao: a.title };
         setTitles(baseTitles);
+        articleTitle.current = a.title;
+        setPublishId(articleId);
         setActive("toutiao");
 
         // 用本地缓存回灌：刷新 / 崩溃后恢复「最后一次编辑」，比后端更靠前
@@ -512,6 +519,7 @@ export function ArticleEditorScreen() {
           status: "draft",
         });
         effectiveId.current = created.article_id;
+        setPublishId(created.article_id);
         setCurrentArticleId(created.article_id);
         window.history.replaceState(null, "", `/writer?articleId=${created.article_id}`);
         persistLocal(created.article_id, texts.current, imgMap.current, titles);
@@ -806,6 +814,18 @@ export function ArticleEditorScreen() {
         <ButtonSecondary className="h-9" onClick={() => void flushSave()}>
           保存
         </ButtonSecondary>
+        {publishId ? (
+          <PublishButton
+            articleId={publishId}
+            articleTitle={articleTitle.current}
+            label="发布"
+            className="h-9"
+          />
+        ) : (
+          <ButtonSecondary className="h-9" disabled title="先保存文章再发布">
+            先保存
+          </ButtonSecondary>
+        )}
         <ButtonSecondary
           className="h-9"
           onClick={insertAtCursor}
