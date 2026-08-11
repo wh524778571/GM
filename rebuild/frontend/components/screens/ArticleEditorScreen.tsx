@@ -50,6 +50,46 @@ function proxy(stem: string): string {
 }
 
 /* ------------------------------------------------------------------ *
+ * 本地草稿缓存：刷新 / 崩溃 / 切走兜底，保证编辑内容不丢
+ * ------------------------------------------------------------------ */
+
+const lsKey = (id: string) => `guoman:draft:${id}`;
+
+interface LocalDraft {
+  texts: Record<string, string>;
+  imgMap: ImgMap;
+  titles: Record<string, string>;
+  ts: number;
+}
+
+function persistLocal(
+  id: string,
+  texts: Record<string, string>,
+  imgMap: ImgMap,
+  titles: Record<string, string>,
+): void {
+  try {
+    const payload: LocalDraft = { texts, imgMap, titles, ts: Date.now() };
+    localStorage.setItem(lsKey(id), JSON.stringify(payload));
+  } catch {
+    /* 隐私模式 / 存储满时静默降级，不影响主流程 */
+  }
+}
+
+function loadLocal(id: string): LocalDraft | null {
+  try {
+    const raw = localStorage.getItem(lsKey(id));
+    if (!raw) return null;
+    const d = JSON.parse(raw) as LocalDraft;
+    // 超过 7 天的本地草稿视为过期，不再覆盖后端内容
+    if (Date.now() - (d.ts ?? 0) > 7 * 24 * 3600 * 1000) return null;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * 渲染：带【配图N】标记的纯文本  ->  编辑区 DOM
  * ------------------------------------------------------------------ */
 
@@ -430,8 +470,21 @@ export function ArticleEditorScreen() {
         }
         texts.current = built;
         imgMap.current = map;
-        setTitles(a.titles ?? { toutiao: a.title });
+        const baseTitles = a.titles ?? { toutiao: a.title };
+        setTitles(baseTitles);
         setActive("toutiao");
+
+        // 用本地缓存回灌：刷新 / 崩溃后恢复「最后一次编辑」，比后端更靠前
+        const local = articleId ? loadLocal(articleId) : null;
+        if (local) {
+          for (const p of PLATFORMS) {
+            if (local.texts?.[p.key]) built[p.key] = local.texts[p.key];
+          }
+          Object.assign(map, local.imgMap ?? {});
+          if (local.titles && Object.keys(local.titles).length) {
+            setTitles({ ...baseTitles, ...local.titles });
+          }
+        }
       })
       .catch((e) => alive && setErr((e as ApiError).message || "加载失败"))
       .finally(() => alive && setLoading(false));
@@ -440,6 +493,27 @@ export function ArticleEditorScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [articleId]);
+
+  // 刷新 / 切走 / 关页前，把最新编辑同步进本地缓存，避免「一刷就没」
+  useEffect(() => {
+    const flushLocal = () => {
+      captureCurrent();
+      const id = effectiveId.current;
+      if (id) persistLocal(id, texts.current, imgMap.current, titles);
+    };
+    const onUnload = () => flushLocal();
+    const onVis = () => {
+      if (document.visibilityState === "hidden") flushLocal();
+    };
+    window.addEventListener("beforeunload", onUnload);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+    // titles 变化即重绑，保证兜底写的是最新标题
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [titles]);
 
   // 非 loading 且 active 平台就绪时，把对应正文真正渲染进编辑区
   useLayoutEffect(() => {
@@ -491,6 +565,7 @@ export function ArticleEditorScreen() {
         effectiveId.current = created.article_id;
         setCurrentArticleId(created.article_id);
         window.history.replaceState(null, "", `/writer?articleId=${created.article_id}`);
+        persistLocal(created.article_id, texts.current, imgMap.current, titles);
         setOkMsg("已创建草稿");
       } else {
         await apiPatch<ArticleOut>(`/articles/${id}`, {
@@ -501,6 +576,7 @@ export function ArticleEditorScreen() {
           status: "draft",
         });
         dirty.current = false;
+        persistLocal(id, texts.current, imgMap.current, titles);
         setOkMsg("已保存");
       }
     } catch (e) {
@@ -509,7 +585,10 @@ export function ArticleEditorScreen() {
   }
 
   function onEdit() {
+    captureCurrent();
     refreshStat();
+    const id = effectiveId.current;
+    if (id) persistLocal(id, texts.current, imgMap.current, titles);
     scheduleSave();
   }
 

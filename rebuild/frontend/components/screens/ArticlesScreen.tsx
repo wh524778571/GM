@@ -243,7 +243,12 @@ export function ArticlesScreen({
               selected={selected.has(row.articleId)}
               onToggleSelect={() => toggleArticleSelection(row.articleId)}
               onRowClick={
-                active === "deleted" ? undefined : () => router.push(`/articles/${row.articleId}`)
+                active === "deleted"
+                  ? undefined
+                  : () =>
+                      row.status === "draft" || row.status === "pending"
+                        ? router.push(`/writer?articleId=${row.articleId}`)
+                        : router.push(`/articles/${row.articleId}`)
               }
               onDelete={active === "deleted" ? undefined : () => onDelete(row.articleId)}
               onRestore={active === "deleted" ? () => onRestore(row.articleId) : undefined}
