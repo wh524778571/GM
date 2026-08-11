@@ -28,20 +28,20 @@ function inline(text: string): string {
 }
 
 const IMG_BOX =
-  "my-3 overflow-hidden rounded-btn border border-subtle bg-raised";
+  "my-3 group relative";
 const PH_BOX =
   "ph-slot my-3 flex cursor-pointer items-center gap-3 rounded-btn border border-dashed border-accent/50 bg-accent/5 px-4 py-3 text-[13px] text-secondary transition hover:border-accent hover:bg-accent/10";
 
-/** 已绑定素材：渲染真图（编辑器内 contenteditable=false，配换图/移除按钮）。 */
+/** 已绑定素材：渲染真图，风格贴近发布弹窗（图片融入正文流，操作按钮 hover 浮现）。 */
 export function figureHtml(n: string, desc: string, stem: string): string {
   const d = escapeHtml(desc.trim());
   return (
     `<figure data-img="${n}" data-desc="${d}" data-stem="${escapeHtml(stem)}" contenteditable="false" class="${IMG_BOX}">` +
-    `<img src="${escapeHtml(proxy(stem))}" alt="${d}" class="block max-h-[420px] w-full object-contain bg-black/20" />` +
-    `<figcaption data-ui="1" class="flex items-center gap-2 border-t border-subtle px-3 py-1.5 text-xs text-tertiary">` +
+    `<img src="${escapeHtml(proxy(stem))}" alt="${d}" class="block w-full rounded object-contain" />` +
+    `<figcaption data-ui="1" class="absolute inset-x-0 bottom-0 flex items-center gap-2 rounded-b bg-black/60 px-3 py-1.5 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">` +
     `<span>配图${n} · ${d}</span>` +
-    `<button type="button" data-act="change" class="ml-auto rounded px-2 py-0.5 text-accent hover:bg-accent/10">换图</button>` +
-    `<button type="button" data-act="remove" class="rounded px-2 py-0.5 text-tertiary hover:bg-white/5">移除</button>` +
+    `<button type="button" data-act="change" class="ml-auto rounded px-2 py-0.5 hover:bg-white/20">换图</button>` +
+    `<button type="button" data-act="remove" class="rounded px-2 py-0.5 hover:bg-white/20">移除</button>` +
     `</figcaption></figure>`
   );
 }
