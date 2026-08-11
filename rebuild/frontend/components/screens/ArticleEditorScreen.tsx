@@ -876,8 +876,7 @@ export function ArticleEditorScreen() {
             onMouseDown={onEditorMouseDown}
             onKeyUp={recordCaret}
             onMouseUp={recordCaret}
-            className="article-body min-h-[460px] w-full overflow-auto rounded-btn border border-subtle bg-raised px-5 py-4 text-[15px] leading-8 text-primary focus:border-accent focus:outline-none"
-            style={{ wordBreak: "break-word" }}
+            className="article-body min-h-[460px] w-full overflow-auto rounded-btn border border-subtle bg-raised px-5 py-4 text-[15px] leading-8 text-primary break-words focus:border-accent focus:outline-none"
           />
         )}
         <p className="mt-3 text-xs text-tertiary">

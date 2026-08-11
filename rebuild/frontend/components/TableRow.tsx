@@ -2,7 +2,7 @@
 
 import { StatusPill } from "./StatusPill";
 import { PLATFORMS } from "@/lib/platforms";
-import { formatViews } from "@/lib/format";
+import { formatCompact } from "@/lib/format";
 import type { ArticleRow } from "@/lib/types";
 
 /**
@@ -106,7 +106,7 @@ export function TableRow({
       </div>
 
       <div className={`${TABLE_COLS.views} text-[13px] tabular-nums text-primary`}>
-        {formatViews(row.views)}
+        {formatCompact(row.views)}
       </div>
 
       <div className={`${TABLE_COLS.date} text-[13px] tabular-nums text-secondary`}>{row.date}</div>

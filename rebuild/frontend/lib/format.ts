@@ -7,10 +7,6 @@ export function formatCompact(n: number): string {
   return String(Math.round(n));
 }
 
-export function formatViews(n: number): string {
-  return new Intl.NumberFormat("zh-CN").format(Math.round(n));
-}
-
 export function formatCny(cents: number): string {
   return `¥${(cents / 100).toLocaleString("zh-CN", {
     minimumFractionDigits: 0,

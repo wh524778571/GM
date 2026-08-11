@@ -40,7 +40,7 @@ from app.services.ai.provider import AIProvider, extract_json_object
 from app.services.image_matching.matcher import ImageMatcherService
 from app.services.rendering import RenderResult, RenderService
 from app.services.text_utils import strip_emoji
-from app.services.ai.style_rules import PLATFORM_ANGLES, DEPTH_GUIDE, VOICE_GUIDE, JSON_RULE
+from app.services.ai.style_rules import PLATFORM_ANGLES, VOICE_GUIDE, JSON_RULE
 
 # 进度回调：(stage, percent, message) → None。生成耗时 30–120s，
 # 异步任务据此上报真实阶段，前端才能画出不骗人的进度条。
@@ -393,13 +393,6 @@ class GenerationService:
             )
         return out
 
-    @staticmethod
-    def _parse_json(raw: str) -> dict:
-        try:
-            return extract_json_object(raw)
-        except AIResponseError as exc:
-            raise GenerationError(str(exc), stage="parse") from exc
-
     def _generate_core(
         self,
         user_prompt: str,
@@ -547,74 +540,6 @@ class GenerationService:
             "可作数据支撑与案例素材；只引用下面列出的真实信息，禁止编造未列出的具体数字）】\n"
             + "\n".join(lines)
         )
-
-    def _expand_text(
-        self,
-        text: str,
-        lo: int,
-        hi: int,
-        *,
-        keep_placeholders: bool,
-        max_tokens: int,
-        temperature: float = 0.85,
-        max_passes: int = 3,
-    ) -> str:
-        """把短文扩写成 lo–hi 字的长文（应对 glm-4-flash 单 call 约 1400–2000 字上限）。
-
-        **关键设计——只产出增量、拼接累加**：每次只让模型吐出「需要追加的新段落」
-        （增量本身 ≤ 模型输出上限，单次必能写完），再把增量接到原文末尾。
-
-        两处质量兜底（根治「重复 / 格式乱」）：
-        - 文末互动引导（CTA）单独拆出、扩写内容插在它前面，保证 CTA 永远在文末，
-          不被增量挤到正文中间造成格式断层；
-        - 增量段落做去重：模型偷懒复述原文 / 重复已有段落时，只保留真正新增的内容。
-        """
-        if keep_placeholders:
-            ph_rule = (
-                "保留原文中已有的【配图N：...】占位符不变（N 与描述一字不改）；"
-                "本次追加的新段落不要新增任何配图占位符"
-            )
-        else:
-            ph_rule = "纯文字无图，不要出现任何【配图N】占位符"
-        body, cta = self._split_cta(text.strip())
-        best = body
-        for _ in range(max_passes):
-            if len(best) >= lo:
-                break
-            deficit = lo - len(best)
-            user = (
-                f"下面是一篇国漫解析文章（约 {len(best)} 字）：\n\n{best}\n\n"
-                f"请**只输出需要追加的新内容**（不要重复上面任何已有句子），"
-                f"把全文补到 {lo}–{hi} 字——本次至少追加 {deficit + 150} 字的新内容，"
-                f"至少 4 个有信息量的细节段落（具体画面/分镜描述、与原著或前作的呼应、"
-                f"观众真实反应或数据），每段 200–400 字；{ph_rule}；"
-                f"正文严格禁止任何 emoji 表情符号（🔥✨💡📌 等一律不要）；用小标题、**加粗**、数字序号、引用（>）制造层次，不要依赖 emoji；全文严格不超过 {hi} 字，数清楚字数再停笔。"
-            )
-            extra2 = (
-                f"\n\n【最高优先级】只输出追加的新内容（绝不要复述原文），"
-                f"至少 {deficit + 150} 字；补完后全文须达到 {lo} 字。"
-            )
-            addition = self._call_model(
-                user, temperature=temperature, max_tokens=max_tokens, extra2=extra2
-            ).strip()
-            if not addition:
-                break
-            # 去重：模型偶发把原文又吐回来 / 重复已有段落 → 只保留真正新增的段落
-            addition = self._dedup_addition(best, addition)
-            if not addition:
-                break
-            candidate = best + "\n\n" + addition
-            # 单调不退化：只接受更长的结果
-            if len(candidate) > len(best):
-                best = candidate
-        # 重新把 CTA 接到最末尾（保证互动引导永远在文末，不被扩写挤到中间）
-        if cta:
-            best = best.rstrip() + "\n\n" + cta
-        # 硬上限兜底：按最近段落边界截断到 hi，绝不返回超过天花板的正文
-        if len(best) > hi:
-            cut = best.rfind("\n\n", 0, hi)
-            best = best[: cut if cut > lo else hi]
-        return best
 
     # 互动引导（CTA）常见措辞，用于把 CTA 从正文拆出、固定到文末
     _CTA_HINTS = (

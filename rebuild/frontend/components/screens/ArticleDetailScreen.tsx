@@ -70,6 +70,7 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
   const [article, setArticle] = useState<ArticleOut | null>(null);
   const [stats, setStats] = useState<ArticleAnalytics | null>(null);
   const [activePlatform, setActivePlatform] = useState<PlatformKey>("xhs");
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -85,8 +86,13 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
         if (!alive) return;
         setArticle(a);
         setStats(s);
+        setLoading(false);
       })
-      .catch((e) => alive && setError((e as ApiError).message || "加载失败"));
+      .catch((e) => {
+        if (!alive) return;
+        setError((e as ApiError).message || "加载失败");
+        setLoading(false);
+      });
     return () => {
       alive = false;
     };
@@ -122,6 +128,11 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
       actionLabel="返回列表"
       onAction={() => router.push("/articles")}
     >
+      {loading ? (
+        <div className="mb-4 animate-pulse rounded-row border border-subtle bg-raised px-4 py-8 text-center text-[13px] text-tertiary">
+          加载中…
+        </div>
+      ) : null}
       {error ? (
         <div className="mb-4 rounded-row border border-plat-toutiao/40 bg-plat-toutiao/10 px-4 py-2.5 text-[13px] text-plat-toutiao">
           {error}
