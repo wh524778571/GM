@@ -6,18 +6,20 @@ export default {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // ── 亮色主题（2026-08 由设计稿统一为暖中性底 + 国漫朱红强调色）──
+      // 改这里即可整体换肤；业务代码一律引用令牌，禁止写死 hex。
       colors: {
-        root: "#0A0A0C",
-        card: "#141417",
-        raised: "#1C1C20",
-        subtle: "#27272A",
-        primary: "#EFEBE2",
-        secondary: "#A8A298",
-        tertiary: "#6B6760",
-        accent: "#FF5C3A",
-        "accent-bg": "#1E130D",
-        success: "#4ADE80",
-        warning: "#FBBF24",
+        root: "#F6F6F7", // 页面暖中性底
+        card: "#FFFFFF", // 卡片纯白
+        raised: "#F1F1F2", // 输入框 / 悬浮态的浅灰填充（亮色下的"抬起"提示）
+        subtle: "#EDEDED", // 1px 细边
+        primary: "#18191C", // 主文字（非纯黑）
+        secondary: "#6B6760", // 次级文字
+        tertiary: "#9A958C", // 弱化文字
+        accent: "#E5484D", // 国漫红（克制朱红，降饱和 ~66%）
+        "accent-bg": "#FCEBEC", // 激活 / 选中态的浅红底
+        success: "#16A34A", // 亮底可读的深绿（状态药丸 / 涨幅）
+        warning: "#B45309", // 亮底可读的琥珀（待发布等）
         plat: {
           toutiao: "#FF4D4F",
           baijia: "#3B82F6",

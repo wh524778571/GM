@@ -376,7 +376,7 @@ export function AnalyticsScreen({
               {loading ? "读取中…" : "暂无追踪记录"}
             </p>
           ) : (
-            <ul className="divide-y divide-[var(--border-subtle)]">
+            <ul className="divide-y divide-subtle">
               {(summary?.top_articles ?? []).map((a, i) => (
                 <li key={a.article_id} className="flex items-center gap-3 px-4 py-2.5">
                   <span className="w-5 shrink-0 text-xs tabular-nums text-tertiary">{i + 1}</span>
