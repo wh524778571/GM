@@ -215,7 +215,7 @@ export function ImageEditor({
     try {
       if (saveMode === "overwrite") { await onOverwrite(croppedBlob, materialId); setMsg("✓ 已覆盖原图"); setReloadKey(k => k + 1); }
       else { const n = saveName.trim() || stem; await onSaveAsNew(croppedBlob, `${n}.jpg`); setMsg(`✓ 已另存为「${n}.jpg」`); }
-      setMode("view"); setCropRect(null); setCroppedBlob(null);
+      onClose();
       if (cropPreviewUrl) { URL.revokeObjectURL(cropPreviewUrl); setCropPreviewUrl(null); }
     } catch (e) { setMsg(`保存失败: ${e instanceof Error ? e.message : "?"}`); }
     finally { setSaving(false); }
