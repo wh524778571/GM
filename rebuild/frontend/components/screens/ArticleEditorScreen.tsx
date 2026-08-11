@@ -585,7 +585,13 @@ export function ArticleEditorScreen() {
   /** contentEditable 内部的 contenteditable=false 子元素，mousedown 更稳 */
   function onEditorMouseDown(e: React.MouseEvent<HTMLDivElement>) {
     const t = e.target as HTMLElement;
-    if (t.closest("[data-ph],figure[data-img]")) {
+    if (t.closest("figure[data-img]")) {
+      e.preventDefault();
+      handleEditorAction(t);
+      return;
+    }
+    // ph-slot：只拦按钮点击（让其触发选图），文字区域允许选中复制
+    if (t.closest("[data-ph] [data-act]")) {
       e.preventDefault();
       handleEditorAction(t);
     }
