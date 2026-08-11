@@ -553,26 +553,28 @@ export function ArticleEditorScreen() {
     const actBtn = target.closest<HTMLElement>("[data-act]");
     if (actBtn) {
       const fig = actBtn.closest<HTMLElement>("figure[data-img]");
-      if (!fig) return;
-      if (actBtn.dataset.act === "remove") {
-        const n = fig.dataset.img ?? "1";
-        const desc = fig.dataset.desc ?? "";
-        fig.outerHTML = slotHtml(n, desc);
-        onEdit();
-        setOkMsg("已移除该图，占位还在原处");
-      } else {
-        pending.current = { mode: "change", el: fig };
-        setPickerQuery((fig.dataset.desc ?? "").split("_")[0] ?? "");
+      if (fig) {
+        if (actBtn.dataset.act === "remove") {
+          const n = fig.dataset.img ?? "1";
+          const desc = fig.dataset.desc ?? "";
+          fig.outerHTML = slotHtml(n, desc);
+          onEdit();
+          setOkMsg("已移除该图，占位还在原处");
+        } else {
+          pending.current = { mode: "change", el: fig };
+          setPickerQuery((fig.dataset.desc ?? "").split("_")[0] ?? "");
+          setPickerOpen(true);
+        }
+        return;
+      }
+      // ph-slot 内的「📎 从素材库选图」按钮
+      const slot = actBtn.closest<HTMLElement>("[data-ph]");
+      if (slot && actBtn.dataset.act === "pick") {
+        pending.current = { mode: "slot", el: slot };
+        setPickerQuery((slot.dataset.desc ?? "").split("_")[0] ?? "");
         setPickerOpen(true);
       }
       return;
-    }
-
-    const slot = target.closest<HTMLElement>("[data-ph]");
-    if (slot) {
-      pending.current = { mode: "slot", el: slot };
-      setPickerQuery((slot.dataset.desc ?? "").split("_")[0] ?? "");
-      setPickerOpen(true);
     }
   }
 

@@ -46,7 +46,9 @@ export function figureHtml(n: string, desc: string, stem: string): string {
   );
 }
 
-/** 未绑定素材：渲染缺图占位（对齐发布弹窗风格：📷 + 提示 + 建议文件名）。 */
+/** 未绑定素材：渲染缺图占位（对齐发布弹窗风格：📷 + 提示 + 建议文件名）。
+ *  整个块不再可点，只有底部一段「选图 CTA」触发交互。
+ */
 export function slotHtml(n: string, desc: string): string {
   const d = escapeHtml(desc.trim());
   const fn = desc.trim().replace(/[\\/:*?"<>|]/g, "_") + ".jpeg";
@@ -55,6 +57,7 @@ export function slotHtml(n: string, desc: string): string {
     `<p class="text-[15px] font-bold text-[#FFB950]">📷 缺少配图${n}</p>` +
     `<p class="text-[13px] text-[#E0B84C] leading-relaxed">请从素材库选择，或放入 <code class="rounded px-1.5 py-0.5 text-xs font-bold text-[#FFB950] bg-[#FFB950]/15">配图/</code> 文件夹</p>` +
     `<p class="text-xs text-[#C89B3C]">建议文件名: <code class="rounded px-1.5 py-0.5 text-xs font-bold text-[#FFB950] bg-[#FFB950]/15">${escapeHtml(fn)}</code></p>` +
+    `<div data-act="pick" class="mt-2 inline-block cursor-pointer rounded-full border border-[#FFB950]/50 px-4 py-1 text-xs font-medium text-[#FFB950] transition hover:bg-[#FFB950]/15">📎 从素材库选图</div>` +
     `</div>`
   );
 }
