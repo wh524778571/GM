@@ -90,7 +90,7 @@ export function ImageEditor({
     const ctx = c.getContext("2d")!;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    if (mode === "crop" && crop) {
+    if (mode === "crop" && crop && crop.w >= MIN_CROP && crop.h >= MIN_CROP) {
       // 裁切区域铺满 canvas
       const s = Math.min(c.width / crop.w, c.height / crop.h);
       const dw = crop.w * s, dh = crop.h * s;
@@ -182,7 +182,7 @@ export function ImageEditor({
     if (!img) return { ix: 0, iy: 0 };
     const rect = c.getBoundingClientRect();
     const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
-    if (!crop) {
+    if (!crop || crop.w < 1 || crop.h < 1) {
       // view 模式：图像居中缩放
       const s = Math.min(c.width / img.naturalWidth, c.height / img.naturalHeight);
       const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
@@ -270,7 +270,9 @@ export function ImageEditor({
       const y1 = Math.max(0, Math.min(dr.oy, iy));
       const x2 = Math.min(img.naturalWidth, Math.max(dr.ox, ix));
       const y2 = Math.min(img.naturalHeight, Math.max(dr.oy, iy));
-      setCrop({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+      const w = x2 - x1, h = y2 - y1;
+      // 避免零尺寸导致 canvas 渲染 NaN（除以零 → 黑屏）
+      if (w > 1 || h > 1) setCrop({ x: x1, y: y1, w, h });
       return;
     }
 
