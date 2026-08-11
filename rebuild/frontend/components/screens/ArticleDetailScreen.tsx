@@ -61,7 +61,6 @@ function renderContentWithImages(
   PLACEHOLDER_RE.lastIndex = 0;
   while ((m = PLACEHOLDER_RE.exec(text)) !== null) {
     const placeholder = m[0];
-    const index = m[1];
     const description = m[2].trim();
     const before = text.slice(last, m.index);
     if (before.trim()) {
@@ -73,25 +72,15 @@ function renderContentWithImages(
     }
     const url = imgMap[placeholder];
     if (url) {
+      // 已绑定：渲染真图；不在读者视图展示「配图N：描述」这类内部作者标记
       nodes.push(
         <figure key={key++} className="my-2 overflow-hidden rounded-row border border-subtle">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={url} alt={description} className="max-h-80 w-full object-cover" />
-          <figcaption className="bg-raised px-3 py-1.5 text-xs text-tertiary">
-            配图{index}：{description}
-          </figcaption>
         </figure>,
       );
-    } else {
-      nodes.push(
-        <p
-          key={key++}
-          className="rounded-row border border-dashed border-subtle bg-raised px-3 py-2 text-[13px] text-tertiary"
-        >
-          配图{index}：{description}（未绑定素材）
-        </p>,
-      );
     }
+    // 未绑定素材的占位符是内部作者标记，不在读者视图渲染，避免泄漏「配图N：描述」
     last = m.index + placeholder.length;
   }
   const after = text.slice(last);

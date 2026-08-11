@@ -38,6 +38,7 @@ from app.services.ai.provider import AIProvider, extract_json_object
 from app.services.image_matching.matcher import ImageMatcherService
 from app.services.rendering import RenderResult, RenderService
 from app.services.text_utils import strip_emoji
+from app.services.ai.style_rules import PLATFORM_ANGLES
 
 # 进度回调：(stage, percent, message) → None。生成耗时 30–120s，
 # 异步任务据此上报真实阶段，前端才能画出不骗人的进度条。
@@ -414,14 +415,12 @@ class GenerationService:
         """把短文扩写成 lo–hi 字的长文（应对 glm-4-flash 单 call 约 1400–2000 字上限）。
 
         **关键设计——只产出增量、拼接累加**：每次只让模型吐出「需要追加的新段落」
-        （增量本身 ≤ 模型输出上限，单次必能写完），再把增量接到原文末尾。这样正文
-        长度能**单调累加**、稳定突破单 call 输出天花板，而不是整篇重写后卡在 ~1400 字
-        的 Plateau（旧实现因此让百家号停在 1873 字、够不到 2000 地板）。
+        （增量本身 ≤ 模型输出上限，单次必能写完），再把增量接到原文末尾。
 
-        模型若把原文又吐了回来（追加内容以原文开头），自动剔除重叠前缀只留新增，
-        其余情况一律拼到末尾，正文长度单调累加、稳定突破单 call 输出上限。
-        keep_placeholders=True 保留并照搬原文【配图N】占位符、新增段落不加新占位符；
-        False 要求纯文字无图（小红书）。
+        两处质量兜底（根治「重复 / 格式乱」）：
+        - 文末互动引导（CTA）单独拆出、扩写内容插在它前面，保证 CTA 永远在文末，
+          不被增量挤到正文中间造成格式断层；
+        - 增量段落做去重：模型偷懒复述原文 / 重复已有段落时，只保留真正新增的内容。
         """
         if keep_placeholders:
             ph_rule = (
@@ -430,7 +429,8 @@ class GenerationService:
             )
         else:
             ph_rule = "纯文字无图，不要出现任何【配图N】占位符"
-        best = text.strip()
+        body, cta = self._split_cta(text.strip())
+        best = body
         for _ in range(max_passes):
             if len(best) >= lo:
                 break
@@ -452,22 +452,65 @@ class GenerationService:
             ).strip()
             if not addition:
                 break
-            # 模型偶尔会把原文又吐回来（追加内容以原文开头）→ 截掉重叠前缀，只留真正新增部分，
-            # 避免整篇重复；其余情况直接接到末尾。总之**始终把新内容拼到末尾**，
-            # 让正文长度单调累加、稳定突破 glm-4-flash 单 call 输出上限。
-            if best and addition.startswith(best[:60]):
-                addition = addition[len(best[:60]):].strip()
+            # 去重：模型偶发把原文又吐回来 / 重复已有段落 → 只保留真正新增的段落
+            addition = self._dedup_addition(best, addition)
+            if not addition:
+                break
             candidate = best + "\n\n" + addition
             # 单调不退化：只接受更长的结果
             if len(candidate) > len(best):
                 best = candidate
-        # 硬上限兜底：万一某趟扩写越过 hi（模型偶发不守上限），按最近段落边界截断到 hi，
-        # 绝不返回超过用户「2000–3000 字」天花板的正文；且不切断段落、保留原文结尾互动引导
-        # （扩写追加在原文 CTA 之后，截掉的是末尾冗余新增，不影响完整度）。
+        # 重新把 CTA 接到最末尾（保证互动引导永远在文末，不被扩写挤到中间）
+        if cta:
+            best = best.rstrip() + "\n\n" + cta
+        # 硬上限兜底：按最近段落边界截断到 hi，绝不返回超过天花板的正文
         if len(best) > hi:
             cut = best.rfind("\n\n", 0, hi)
             best = best[: cut if cut > lo else hi]
         return best
+
+    # 互动引导（CTA）常见措辞，用于把 CTA 从正文拆出、固定到文末
+    _CTA_HINTS = (
+        "评论", "聊聊", "关注", "点赞", "转发", "收藏",
+        "你怎么", "你觉得", "说说", "互动", "留言", "催更", "期待", "你们",
+    )
+
+    @staticmethod
+    def _norm_para(p: str) -> str:
+        return re.sub(r"\s+", "", p)
+
+    def _split_cta(self, text: str) -> tuple[str, str]:
+        """把文末互动引导段拆出，返回 (正文, CTA)；无 CTA 则返回 (原文, '')。"""
+        paras = [p for p in re.split(r"\n\n+", text.strip()) if p.strip()]
+        if len(paras) < 2:
+            return text, ""
+        last = paras[-1]
+        if any(h in last for h in self._CTA_HINTS) and len(last) <= 120:
+            return "\n\n".join(paras[:-1]), last
+        return text, ""
+
+    def _dedup_addition(self, best: str, addition: str) -> str:
+        """剔除 addition 中与 best 已有内容重复的段落（模型复述原文 / 重复已有段落）。"""
+        best_norm = {self._norm_para(p) for p in re.split(r"\n\n+", best) if p.strip()}
+        kept: list[str] = []
+        for p in re.split(r"\n\n+", addition):
+            p = p.strip()
+            if not p:
+                continue
+            np_ = self._norm_para(p)
+            # 整段与 best 某段几乎相同 → 丢弃
+            if np_ in best_norm:
+                continue
+            # 段落前半复述了 best 某段（模型把前文又吐回来）→ 丢弃
+            if any(
+                np_.startswith(b[:40]) and len(np_) <= len(b) + 10
+                for b in best_norm
+                if len(b) >= 40
+            ):
+                continue
+            kept.append(p)
+            best_norm.add(np_)
+        return "\n\n".join(kept)
 
     def _rewrite_platform(self, core: str, key: str, max_tokens: int, temperature: float) -> str:
         """把母稿改写成单个平台的完整正文（保留/剔除配图占位符按平台规则）。
@@ -477,6 +520,8 @@ class GenerationService:
         """
         rule = self.registry.get(key)
         target = rule.body.target_chars
+        angle = PLATFORM_ANGLES.get(key, "")
+        angle_block = f"\n\n{angle}" if angle else ""
         # 过短阈值：目标的保守比例 + 绝对下限。必须低于指令里的「±30%」上限，
         # 否则模型在目标区间内产出的内容会被误判过短而兜底母稿（小红书曾踩此坑）。
         low = max(80, int(target * 0.5))
@@ -491,7 +536,9 @@ class GenerationService:
             f"以下是一篇国漫解析母稿：\n\n{core}\n\n"
             f"请把这篇母稿改写成【{rule.name}】风格的自媒体正文，"
             f'只输出一个 JSON：{{"{key}":"改写后的完整正文"}}。\n'
-            f"要求：风格——{rule.style}；这是一篇约 {target} 字（±30%）的完整正文"
+            f"要求：风格——{rule.style}；不要只是把母稿换个说法，要按本平台读者最关心的角度重新组织内容、"
+            f"用平台原生的开头钩子切入（头条用数据/悬念、B站用争议/玩梗、百家用观点/分析、小红书用情感/清单），"
+            f"四个平台要有明显不同的侧重点，而不是同一篇换四种语气；{angle_block}这是一篇约 {target} 字（±30%）的完整正文"
             f"（绝不是标题、绝不是一句话）；"
             f"{img_instruction}正文严格禁止任何 emoji 表情符号（🔥✨💡📌 等一律不要）；用小标题、**加粗**、数字序号、引用（>）制造层次，不要依赖 emoji；"
             f"结尾必须有互动引导（如「评论区聊聊」）。"

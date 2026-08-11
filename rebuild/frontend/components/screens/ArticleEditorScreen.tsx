@@ -731,6 +731,8 @@ export function ArticleEditorScreen() {
 
     // 去掉界面元素 + 未配图的占位卡片
     box.querySelectorAll("[data-ui]").forEach((n) => n.remove());
+    // 去掉配图卡片底部的「配图N · 描述」说明，避免粘到平台后泄漏内部标记
+    box.querySelectorAll("figcaption").forEach((n) => n.remove());
     const emptySlots = box.querySelectorAll("[data-ph]");
     emptySlots.forEach((n) => n.remove());
 
@@ -750,9 +752,9 @@ export function ArticleEditorScreen() {
 
     box.querySelectorAll("figure").forEach((f) => f.removeAttribute("class"));
     const html = box.innerHTML;
-    const plain = text.replace(PH_RE, (full, n, desc) =>
-      imgMap.current[phKey(n, desc)] ? "" : full,
-    );
+    // 复制的纯文本一律去掉【配图N：描述】内部标记（图片已在 HTML 版内联），
+    // 避免粘到平台后残留「配图1：梦幻西游_经典场景」这类作者标记
+    const plain = text.replace(PH_RE, "");
     const label = PLATFORMS.find((p) => p.key === key)!.label;
     const skipped = emptySlots.length;
 
