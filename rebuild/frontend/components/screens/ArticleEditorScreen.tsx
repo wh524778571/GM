@@ -691,9 +691,8 @@ export function ArticleEditorScreen() {
 
     box.querySelectorAll("figure").forEach((f) => f.removeAttribute("class"));
     const html = box.innerHTML;
-    // 复制的纯文本一律去掉【配图N：描述】内部标记（图片已在 HTML 版内联），
-    // 避免粘到平台后残留「配图1：梦幻西游_经典场景」这类作者标记
-    const plain = text.replace(PH_RE, "");
+    // 纯文本保留【配图N：描述】标记，粘贴到平台后知道在哪配什么图
+    const plain = text;
     const label = PLATFORMS.find((p) => p.key === key)!.label;
     const skipped = emptySlots.length;
 
