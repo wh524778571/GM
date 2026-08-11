@@ -242,6 +242,8 @@ export function ArticleEditorScreen() {
   const texts = useRef<Record<string, string>>({});
   const imgMap = useRef<ImgMap>({});
   const editorRef = useRef<HTMLDivElement>(null);
+  /** 实际文章 id：新建草稿创建成功后才会被填入；加载已有文章时等于 articleId */
+  const effectiveId = useRef<string | null>(initialId ?? storedId ?? null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
   /** 正在等待选图的目标：占位卡片 / 要换的图 / 光标插入 */
@@ -364,18 +366,34 @@ export function ArticleEditorScreen() {
   }
 
   async function flushSave() {
-    if (!articleId) return;
     captureCurrent();
+    const id = effectiveId.current;
     try {
-      await apiPatch<ArticleOut>(`/articles/${articleId}`, {
-        title: titles.toutiao?.trim() || "未命名文章",
-        titles,
-        contents: { ...texts.current },
-        image_sources: { ...imgMap.current },
-        status: "draft",
-      });
-      dirty.current = false;
-      setOkMsg("已保存");
+      if (!id) {
+        // 空白新建：先创建一篇草稿，再切到编辑态（后续保存走 PATCH）
+        const created = await apiPost<ArticleOut>("/articles", {
+          article_id: `manual-${Date.now()}`,
+          title: titles.toutiao?.trim() || "未命名文章",
+          titles,
+          contents: { ...texts.current },
+          image_sources: { ...imgMap.current },
+          status: "draft",
+        });
+        effectiveId.current = created.article_id;
+        setCurrentArticleId(created.article_id);
+        window.history.replaceState(null, "", `/writer?articleId=${created.article_id}`);
+        setOkMsg("已创建草稿");
+      } else {
+        await apiPatch<ArticleOut>(`/articles/${id}`, {
+          title: titles.toutiao?.trim() || "未命名文章",
+          titles,
+          contents: { ...texts.current },
+          image_sources: { ...imgMap.current },
+          status: "draft",
+        });
+        dirty.current = false;
+        setOkMsg("已保存");
+      }
     } catch (e) {
       setErr((e as ApiError).message || "保存失败");
     }
@@ -546,12 +564,12 @@ export function ArticleEditorScreen() {
   /* -------------------- 去 AI 味 / 标题 -------------------- */
 
   async function humanize() {
-    if (!articleId) return;
+    if (!effectiveId.current) return;
     captureCurrent();
     setBusy(true);
     setError(null);
     try {
-      const res = await apiPost<{ polished: string }>(`/articles/${articleId}/polish`, {
+      const res = await apiPost<{ polished: string }>(`/articles/${effectiveId.current}/polish`, {
         text: texts.current[active] ?? "",
         persist: false,
       });
@@ -567,11 +585,11 @@ export function ArticleEditorScreen() {
   }
 
   async function regenerateTitles() {
-    if (!articleId) return;
+    if (!effectiveId.current) return;
     setBusy(true);
     setError(null);
     try {
-      const a = await apiPost<ArticleOut>(`/articles/${articleId}/titles`);
+      const a = await apiPost<ArticleOut>(`/articles/${effectiveId.current}/titles`);
       setTitles(a.titles ?? titles);
       setOkMsg("已重生成四平台特色标题");
       scheduleSave();
@@ -582,27 +600,16 @@ export function ArticleEditorScreen() {
     }
   }
 
-  if (!articleId) {
-    return (
-      <AppShell
-        title="文章编辑"
-        subtitle="从「今日选题」生成，或在文章管理里点开一篇，就能在这里编辑"
-        actionLabel="去今日选题"
-        onAction={() => router.push("/topics")}
-      >
-        <div className="rounded-card border border-subtle bg-card p-8 text-center text-sm text-tertiary">
-          还没有打开的文章。去「今日选题」点「生成并编辑」，或在「文章管理」里点开一篇。
-        </div>
-      </AppShell>
-    );
-  }
-
   const activeLabel = PLATFORMS.find((p) => p.key === active)?.label ?? "";
 
   return (
     <AppShell
       title="文章编辑"
-      subtitle="点正文里的配图占位就能选图插进去 · 一键复制整篇图文去平台粘贴"
+      subtitle={
+        effectiveId.current
+          ? "点正文里的配图占位就能选图插进去 · 一键复制整篇图文去平台粘贴"
+          : "空白新建：直接写正文、点占位配图，首次保存会自动建成草稿"
+      }
       actionLabel="去今日选题"
       onAction={() => router.push("/topics")}
     >
