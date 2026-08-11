@@ -220,6 +220,93 @@ function htmlToMarkerText(html: string): { text: string; bound: ImgMap } {
 
 const looksLikeHtml = (s: string) => /<(img|div|p|figure|br)\b/i.test(s);
 
+/** 从各平台正文 + 已绑定图里提取全局配图计划：编号 -> 描述（按编号去重） */
+function buildPlan(
+  contents: Record<string, string>,
+  imgMap: ImgMap,
+): Record<number, string> {
+  const plan: Record<number, string> = {};
+  const phLocal = new RegExp(PH_RE.source, "g");
+  const ingest = (text: string) => {
+    phLocal.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = phLocal.exec(text)) !== null) {
+      const n = parseInt(m[1], 10);
+      if (!Number.isNaN(n) && !(n in plan)) plan[n] = m[2].trim();
+    }
+  };
+  for (const raw of Object.values(contents)) ingest(String(raw || ""));
+  for (const k of Object.keys(imgMap)) {
+    const m = k.match(/^【配图(\d+)\s*[:：]\s*([^】]*)】$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (!Number.isNaN(n) && !(n in plan)) plan[n] = m[2].trim();
+    }
+  }
+  return plan;
+}
+
+const hasMark = (p: string) => /【配图\d+\s*[:：]/.test(p);
+
+/**
+ * 把一篇平台正文对齐成「四平台一致、分散不重复」的配图版：
+ *  - 同编号只保留首个（去掉堆一起的重复）；
+ *  - 若某平台缺失配图、或现存配图连续堆一起（相邻间隔<2段），则删除全部标记后按段落均匀重排；
+ *  - 不堆一起、无缺失的平台原样保留（不破坏已分散的新文章 / 用户手动调好的位置）。
+ */
+function alignText(text: string, plan: Record<number, string>): string {
+  const nums = Object.keys(plan).map(Number).sort((a, b) => a - b);
+  if (!nums.length) return text;
+  const ph = new RegExp(PH_RE.source, "g");
+
+  // 1) 去重：同编号只留首个
+  const seen = new Set<number>();
+  let cleaned = text.replace(ph, (full, n) => {
+    const num = Number(n);
+    if (seen.has(num)) return "";
+    seen.add(num);
+    return full;
+  });
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+
+  const paras = cleaned.split(/\n\n+/);
+  const markIdx: number[] = [];
+  paras.forEach((p, i) => {
+    if (hasMark(p)) markIdx.push(i);
+  });
+  const present = new Set(
+    markIdx.map((i) => {
+      const m = paras[i].match(/【配图(\d+)/);
+      return m ? Number(m[1]) : -1;
+    }),
+  );
+  const missing = nums.filter((n) => !present.has(n));
+  let reshuffle = false;
+  for (let i = 1; i < markIdx.length; i++) {
+    if (markIdx[i] - markIdx[i - 1] < 2) reshuffle = true;
+  }
+  if (!reshuffle && !missing.length) return cleaned;
+
+  // 重排：删全部标记，按段落均匀重插全部 plan（编号顺序分散）
+  const noMarks = cleaned.replace(ph, "").replace(/\n{3,}/g, "\n\n").trim();
+  const ps = noMarks.split(/\n\n+/).filter((p) => p.trim());
+  const P = ps.length;
+  if (P <= 1) {
+    return (
+      ps.join("\n\n") +
+      "\n\n" +
+      nums.map((n) => `【配图${n}：${plan[n]}】`).join("\n\n")
+    );
+  }
+  const inserts = nums.map((n, k) => ({
+    idx: Math.min(P - 1, Math.floor(((k + 1) / (nums.length + 1)) * P)),
+    tok: `【配图${n}：${plan[n]}】`,
+  }));
+  inserts.sort((a, b) => b.idx - a.idx);
+  inserts.forEach(({ idx, tok }) => ps.splice(idx + 1, 0, tok));
+  return ps.join("\n\n");
+}
+
 /* ------------------------------------------------------------------ */
 
 export function ArticleEditorScreen() {
@@ -250,6 +337,8 @@ export function ArticleEditorScreen() {
   const pending = useRef<{ mode: "slot" | "change" | "cursor"; el?: HTMLElement }>({
     mode: "cursor",
   });
+  /** 编辑区里最后一次光标所在的块（用于「在光标处插图」精确落位） */
+  const lastCaret = useRef<HTMLElement | null>(null);
 
   const setOkMsg = (m: string) => {
     setOk(m);
@@ -259,6 +348,20 @@ export function ArticleEditorScreen() {
     setError(m);
     setOk(null);
   };
+
+  /** 记录当前光标所在块，供「在光标处插图」精确插入（而非堆到末尾） */
+  const recordCaret = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    let node = sel.anchorNode as HTMLElement | null;
+    if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    const block = (node as HTMLElement | null)?.closest(
+      "p,h3,h4,figure,div[data-ph]",
+    ) as HTMLElement | null;
+    if (block && el.contains(block)) lastCaret.current = block;
+  }, []);
 
   const refreshStat = useCallback(() => {
     const el = editorRef.current;
@@ -320,6 +423,11 @@ export function ArticleEditorScreen() {
             built[p.key] = raw;
           }
         }
+        // 四平台共享同一份配图计划：补齐缺失平台、去重、把堆一起的打散
+        const plan = buildPlan(built, map);
+        for (const p of PLATFORMS) {
+          built[p.key] = alignText(built[p.key], plan);
+        }
         texts.current = built;
         imgMap.current = map;
         setTitles(a.titles ?? { toutiao: a.title });
@@ -355,6 +463,7 @@ export function ArticleEditorScreen() {
   function switchPlatform(key: PlatformKey) {
     if (key === active) return;
     captureCurrent();
+    lastCaret.current = null;
     setActive(key);
     requestAnimationFrame(() => loadPlatform(key));
   }
@@ -472,17 +581,22 @@ export function ArticleEditorScreen() {
     if (mode === "cursor" || !targetEl) {
       const n = nextIndex();
       const html = figureHtml(String(n), m.stem, stem);
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
-        const block =
-          (sel.anchorNode as HTMLElement)?.nodeType === Node.ELEMENT_NODE
-            ? (sel.anchorNode as HTMLElement)
-            : sel.anchorNode?.parentElement;
-        const anchor = block?.closest("p,h3,h4,figure,div[data-ph]");
-        if (anchor && el.contains(anchor)) anchor.insertAdjacentHTML("afterend", html);
-        else el.insertAdjacentHTML("beforeend", html);
+      const anchor = lastCaret.current;
+      if (anchor && el.contains(anchor)) {
+        // 插到光标所在块之后，原地定位，不堆末尾
+        anchor.insertAdjacentHTML("afterend", html);
       } else {
-        el.insertAdjacentHTML("beforeend", html);
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+          const node = sel.anchorNode as HTMLElement;
+          const block = (
+            node.nodeType === Node.TEXT_NODE ? node.parentElement : node
+          )?.closest("p,h3,h4,figure,div[data-ph]") as HTMLElement | null;
+          if (block) block.insertAdjacentHTML("afterend", html);
+          else el.insertAdjacentHTML("beforeend", html);
+        } else {
+          el.insertAdjacentHTML("beforeend", html);
+        }
       }
     } else {
       const n = targetEl.dataset.img ?? targetEl.dataset.ph ?? String(nextIndex());
@@ -688,6 +802,8 @@ export function ArticleEditorScreen() {
             onBlur={captureCurrent}
             onClick={onEditorClick}
             onMouseDown={onEditorMouseDown}
+            onKeyUp={recordCaret}
+            onMouseUp={recordCaret}
             className="article-body min-h-[460px] w-full overflow-auto rounded-btn border border-subtle bg-raised px-5 py-4 text-[15px] leading-8 text-primary focus:border-accent focus:outline-none"
             style={{ wordBreak: "break-word" }}
           />

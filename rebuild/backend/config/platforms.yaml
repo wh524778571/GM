@@ -107,7 +107,7 @@ platforms:
       max_chars: 1000       # ★ 硬上限：纯文字 ≤1000 字
       short_ratio: 0.7
     images:
-      allowed: false        # ★ 纯文字无图：占位符一律剔除
+      allowed: true         # 小红书图文密集，保留并分散配图占位符
       required: false
       caption: false
       alt_text: false

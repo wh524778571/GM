@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -224,6 +225,10 @@ class GenerationService:
             core, ai_max_tokens, ai_temperature, report_progress
         )
         contents, content_enforcements = self._enforce_content_rules(contents)
+        # 配图对齐兜底：allowed 平台补齐被改写丢掉的占位符、去重
+        # （解决"只有百家能插图 / 图片堆在一起重复"）
+        contents, image_align_enf = self._align_images(contents, core)
+        content_enforcements = list(content_enforcements) + list(image_align_enf)
         # 单平台改写失败兜底母稿：如实登记，绝不静默假成功
         enforcements = list(content_enforcements)
         enforcements.extend(rewrite_errors)
@@ -577,6 +582,87 @@ class GenerationService:
                 )
             contents[key] = text
         return contents, enforcements
+
+    # 配图占位符正则（与前端 / image_matching 约定一致）
+    _PH_RE = re.compile(r"【配图(\d+)\s*[:：]\s*([^】]*)】")
+
+    def _inject_missing(self, text: str, missing: list[tuple[int, str, float]]) -> str:
+        """把 missing 里的配图标记按相对位置注入到段落之间（从后往前插，避免错位）。"""
+        paras = re.split(r"\n\n+", text)
+        if len(paras) <= 1:
+            for (_n, desc, _rel) in missing:
+                text = f"{text}\n\n【配图{_n}：{desc}】\n\n"
+            return text
+        P = len(paras)
+        inserts: list[tuple[int, str]] = []
+        for (n, desc, rel) in missing:
+            idx = max(0, min(P - 1, int(rel * P)))
+            inserts.append((idx, f"【配图{n}：{desc}】"))
+        inserts.sort(key=lambda x: x[0], reverse=True)
+        for idx, token in inserts:
+            paras.insert(idx + 1, token)
+        return "\n\n".join(paras)
+
+    def _align_images(
+        self, contents: dict, core: str
+    ) -> tuple[dict[str, str], list[str]]:
+        """对允许图片的平台，强制配图占位符分散、不重复、与正文语义对齐。
+
+        母稿 core 里的【配图N】是 AI 排好位置的（语义贴合）。模型改写时可能丢标记或
+        重复（如 toutiao/bilibili 改写后丢标记、baijia 重复两次），这里用代码兜底：
+        1) 从 core 提取配图计划（编号/描述/相对位置 0~1），按编号去重、按位置排序；
+        2) 对每个 allowed 平台：同编号只保留首个（解决"堆一起/重复"）；
+           缺失的编号按 core 相对位置注入到该平台正文最近段落边界（保持分散）。
+        """
+        enforcements: list[str] = []
+        plan: list[tuple[int, str, float]] = []
+        seen: set[int] = set()
+        core_len = max(1, len(core))
+        for m in self._PH_RE.finditer(core):
+            n = int(m.group(1))
+            if n in seen:
+                continue
+            seen.add(n)
+            plan.append((n, m.group(2).strip(), m.start() / core_len))
+        if not plan:
+            return contents, enforcements
+        plan.sort(key=lambda x: x[2])
+
+        out = dict(contents)
+        for key in self.registry.keys():
+            rule = self.registry.get(key)
+            if not rule.images.allowed:
+                continue
+            text = str(contents.get(key) or "").strip()
+            if not text:
+                continue
+            # 1) 去重：同编号只保留首个出现
+            occurrences = list(self._PH_RE.finditer(text))
+            keep: set[int] = set()
+            seen_n: set[int] = set()
+            for m in occurrences:
+                n = int(m.group(1))
+                if n in seen_n:
+                    continue
+                seen_n.add(n)
+                keep.add(m.start())
+            # 从后往前删除重复
+            for m in sorted(
+                (o for o in occurrences if o.start() not in keep),
+                key=lambda x: x.start(),
+                reverse=True,
+            ):
+                text = text[: m.start()] + text[m.end():]
+            # 2) 补齐缺失
+            present_n = {int(m.group(1)) for m in self._PH_RE.finditer(text)}
+            missing = [(n, desc, rel) for (n, desc, rel) in plan if n not in present_n]
+            if missing:
+                text = self._inject_missing(text, missing)
+                enforcements.append(
+                    f"{rule.name}：补回 {len(missing)} 个被改写丢掉的配图占位符"
+                )
+            out[key] = text
+        return out, enforcements
 
     def _generate_titles(self, topic: str, article_type: str) -> tuple[dict[str, str], list[str]]:
         """为四平台各生成一条符合平台调性的标题（LLM），失败时回退确定性截断。
