@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ButtonSecondary } from "./ButtonSecondary";
 import { PLATFORMS, normalizePlatform } from "@/lib/platforms";
 import { copyPlainText } from "@/lib/clipboard";
+import { toImageProxyUrl } from "@/lib/media";
 import type {
   PublishPacket,
   PublishPacketsResponse,
@@ -73,7 +74,7 @@ export function PublishModal({
   const load = useCallback(async () => {
     setLoadError(null);
     const res = await fetch(
-      `/api/articles/${encodeURIComponent(articleId)}/publish/packets?include_html=false`,
+      `/api/articles/${encodeURIComponent(articleId)}/publish/packets?include_html=true`,
       { cache: "no-store" },
     );
     const body = await readJson(res);
@@ -148,15 +149,38 @@ export function PublishModal({
     }
   }
 
-  async function copy(text: string, key: string) {
+  async function copyBody() {
+    if (!packet) return;
+    const bodyEl = bodyRef.current?.querySelector(".publish-body-inner");
+    const html = bodyEl?.innerHTML ?? packet.html ?? "";
+    // 纯文本：去除 HTML 标签后的正文
+    const plain = (bodyEl?.textContent ?? packet.copy_text).trim();
+    const label = packet.platform_name;
+
     try {
-      await copyPlainText(text);
-      setCopied(key);
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+        }),
+      ]);
+      setCopied(`b-${packet.platform}`);
       window.setTimeout(() => setCopied(null), 1600);
+      setActionOk(`已复制「${label}」图文，去平台编辑器直接粘贴`);
     } catch {
-      setActionError("复制失败，请手动选中下方文本复制");
+      // 富文本复制失败 → 降级纯文字
+      try {
+        await copyPlainText(plain);
+        setCopied(`b-${packet.platform}`);
+        window.setTimeout(() => setCopied(null), 1600);
+        setActionOk(`已复制「${label}」文字（浏览器不支持图文复制）`);
+      } catch {
+        setActionError("复制失败，请手动选中正文复制");
+      }
     }
   }
+
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   return (
     <div
@@ -268,15 +292,21 @@ export function PublishModal({
                     <h3 className="text-[13px] font-medium text-primary">可直接复制的内容</h3>
                     <ButtonSecondary
                       className="h-7 px-2.5 text-xs"
-                      onClick={() => void copy(packet.title, `t-${packet.platform}`)}
+                      onClick={() => {
+                        if (!packet) return;
+                        void copyPlainText(packet.title).then(() => {
+                          setCopied(`t-${packet.platform}`);
+                          window.setTimeout(() => setCopied(null), 1600);
+                        });
+                      }}
                     >
                       {copied === `t-${packet.platform}` ? "标题已复制" : "复制标题"}
                     </ButtonSecondary>
                     <ButtonSecondary
                       className="h-7 px-2.5 text-xs"
-                      onClick={() => void copy(packet.copy_text, `b-${packet.platform}`)}
+                      onClick={() => void copyBody()}
                     >
-                      {copied === `b-${packet.platform}` ? "正文已复制" : "复制正文"}
+                      {copied === `b-${packet.platform}` ? "正文已复制" : "复制正文（含图）"}
                     </ButtonSecondary>
                     {packet.console_url ? (
                       <a
@@ -292,12 +322,18 @@ export function PublishModal({
                   <div className="mt-2 rounded-row border border-subtle bg-raised px-3 py-2 text-[13px] text-primary">
                     {packet.title || "（该平台无标题）"}
                   </div>
-                  <textarea
-                    readOnly
-                    value={packet.copy_text}
-                    rows={10}
-                    aria-label={`${packet.platform_name}正文`}
-                    className="mt-2 w-full resize-y rounded-row border border-subtle bg-raised px-3 py-2 font-mono text-xs leading-6 text-secondary focus:border-accent focus:outline-none"
+                  <div
+                    ref={bodyRef}
+                    dangerouslySetInnerHTML={{
+                      __html: (packet.html || "").replace(
+                        /<img\s+src="([^"]+)"/g,
+                        (_m: string, src: string) => {
+                          const proxy = toImageProxyUrl(src);
+                          return proxy ? `<img src="${proxy}"` : _m;
+                        },
+                      ),
+                    }}
+                    className="publish-body mt-2 rounded-row border border-subtle bg-raised px-4 py-3 text-[15px] leading-relaxed text-primary [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mt-3 [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_p]:my-2 [&_strong]:font-semibold [&_img]:max-w-full [&_img]:my-3 [&_img]:rounded [&_blockquote]:border-l-2 [&_blockquote]:border-accent/60 [&_blockquote]:pl-3 [&_blockquote]:my-2 [&_blockquote]:text-secondary [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2 [&_li]:my-1"
                   />
                 </div>
 

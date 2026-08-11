@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { Button } from "@/components/Button";
 import { ButtonSecondary } from "@/components/ButtonSecondary";
 import { MaterialPicker } from "@/components/MaterialPicker";
 import { PublishButton } from "@/components/PublishModal";
@@ -808,12 +807,6 @@ export function ArticleEditorScreen() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-card border border-subtle bg-card px-4 py-3">
-        <Button className="h-9" onClick={() => void copyPlatform(active)} disabled={busy}>
-          {busyAction === "复制" ? "复制中…" : `复制「${activeLabel}」图文`}
-        </Button>
-        <ButtonSecondary className="h-9" onClick={() => void flushSave()}>
-          保存
-        </ButtonSecondary>
         {publishId ? (
           <PublishButton
             articleId={publishId}
