@@ -34,6 +34,13 @@ from app.services.ai.errors import (
     AIServerError,
     AITimeoutError,
 )
+from app.services.ai.json_utils import extract_json_object
+
+
+def _truncate(text: str, limit: int = 300) -> str:
+    """截断长文本（用于错误消息）。"""
+    text = (text or "").strip()
+    return text if len(text) <= limit else text[:limit] + "…"
 
 # 智谱开放平台（来源：phase0-archive/prompts/gen_article_from_request.py）
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
@@ -379,88 +386,6 @@ class MockProvider(AIProvider):
 
 
 # ── 小工具 ────────────────────────────────────────────────────
-def _truncate(text: str, limit: int = 300) -> str:
-    text = re.sub(r"\s+", " ", text or "").strip()
-    return text if len(text) <= limit else text[:limit] + "…"
-
-
-def _unfence_backtick_values(text: str) -> str:
-    """把 `` `key`: `...` `` 这种反引号包裹的值还原成合法 JSON 字符串。
-
-    模型偶发把 core / 平台字段写成 markdown 代码块（值用 ``` 包住），
-    导致 json.loads 失败。只处理「冒号后紧跟反引号」的值，不碰正常双引号字符串，
-    避免误伤。值内的换行转义成 \\n，引号/反斜杠做 JSON 转义。
-    """
-    pattern = re.compile(r'("(?:[^"\\]|\\.)*")(\s*:\s*)`(.*?)`', re.DOTALL)
-
-    def repl(m: "re.Match[str]") -> str:
-        key = m.group(1)
-        inner = m.group(3)
-        inner = (
-            inner.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace("\n", "\\n")
-        )
-        return f'{key}: "{inner}"'
-
-    return pattern.sub(repl, text)
-
-
-def _repair_json_quotes(s: str) -> str:
-    """尽力修复模型在 JSON 字符串值里漏转义的英文双引号。
-
-    典型坏样本：`` {"core": "这集把"为众生"的主题推高了"} `` —— 内部的 "为众生" 没转义，
-    会让 ``json.loads`` 在第一个内部引号处报 ``Expecting ',' delimiter``，整篇生成崩溃。
-
-    启发式：只在「字符串内部」（由最外层未转义 ``"`` 界定）做判断。
-    遇到一个未转义的 ``"`` 时，看下一个有效字符：
-      - 是 ``:``（键结束）/ ``,`` ``}`` ``]``（值或对象/数组结束）→ 视为合法结束引号，保留；
-      - 否则 → 视为字符串内部的未转义引号，改写成 ``\\"``。
-    已转义的引号（``\\"``）与结构字符不受影响。仅作用于我们这类「顶层对象是平铺字符串字段」
-    的输出，足以救回绝大多数漏转义场景。
-    """
-    out: list[str] = []
-    i = 0
-    n = len(s)
-    in_string = False
-    escaped = False
-    while i < n:
-        c = s[i]
-        if not in_string:
-            out.append(c)
-            if c == '"':
-                in_string = True
-                escaped = False
-            i += 1
-            continue
-        # 字符串内部
-        if escaped:
-            out.append(c)
-            escaped = False
-        elif c == "\\":
-            out.append(c)
-            escaped = True
-        elif c == '"':
-            # 看下一个有效字符，判断这是结束引号还是内部引号
-            j = i + 1
-            while j < n and s[j] in " \t\n\r":
-                j += 1
-            nxt = s[j] if j < n else ""
-            if nxt in (":", ",", "}", "]"):
-                out.append(c)  # 合法结束引号
-                in_string = False
-                escaped = False
-            else:
-                out.append('\\"')  # 内部未转义引号 → 重新转义
-            i += 1
-        else:
-            out.append(c)
-            i += 1
-    return "".join(out)
-
-
 def _parse_retry_after(headers: Iterable | None) -> float | None:
     if not headers:
         return None
@@ -475,55 +400,3 @@ def _parse_retry_after(headers: Iterable | None) -> float | None:
     except (TypeError, ValueError):
         return None
 
-
-def extract_json_object(raw: str) -> dict:
-    """从模型输出里抠出第一个完整 JSON 对象。
-
-    复刻归档实现的容错（截取首个 `{` 到末个 `}`、剔除控制字符），
-    但**解析失败时抛异常**而不是像旧代码那样兜底成一段假 Markdown。
-    额外加固：剥离 BOM/零宽字符、markdown 代码块、尾随逗号，
-    扛住 glm 偶发输出的不规范 JSON——仍不兜底成假数据。
-    """
-    if not raw or not raw.strip():
-        raise AIResponseError("模型输出为空，无法解析 JSON")
-
-    text = raw.strip()
-    # 去 BOM 与零宽字符（模型偶发会在 JSON 前后塞这些）
-    text = text.lstrip("\ufeff").strip()
-    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
-    # 剥离 markdown 代码块（处理前后可能的空白）
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-        text = text.strip()
-
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start < 0 or end <= start:
-        raise AIResponseError(f"模型输出中找不到 JSON 对象：{_truncate(text)}")
-
-    candidate = text[start:end]
-    # 剥离 markdown 代码块（处理前后可能的空白）
-    if candidate.startswith("```"):
-        candidate = re.sub(r"^```(?:json)?\s*", "", candidate)
-        candidate = re.sub(r"\s*```$", "", candidate)
-        candidate = candidate.strip()
-    # 反引号包裹的值（模型偶发把 core 等字段写成 ```...```）先还原成合法 JSON 字符串。
-    # 必须在「剔除控制字符」之前做，才能保留值内的换行（转义成 \n）。
-    candidate = _unfence_backtick_values(candidate)
-    # 剔除控制字符（含换行/制表符）：避免普通字符串值内裸换行破坏 JSON
-    candidate = re.sub(r"[\x00-\x1f\x7f]", " ", candidate)
-    # 剔除尾随逗号（标准 JSON 不允许 `{...},` 或 `[...],`）
-    candidate = re.sub(r",(\s*[}\]])", r"\1", candidate)
-    try:
-        data = json.loads(candidate)
-    except json.JSONDecodeError:
-        # 最后一道防线：模型常在字符串值里漏转义英文双引号（如 "为众生"），
-        # 用启发式把它重新转义成 \"，能救回绝大多数坏 JSON，避免整篇生成崩溃。
-        try:
-            data = json.loads(_repair_json_quotes(candidate))
-        except json.JSONDecodeError as exc:
-            raise AIResponseError(f"模型输出 JSON 解析失败：{exc}；原文：{_truncate(candidate)}") from exc
-    if not isinstance(data, dict):
-        raise AIResponseError("模型输出的 JSON 顶层不是对象")
-    return data
