@@ -109,7 +109,6 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
   const router = useRouter();
   const [article, setArticle] = useState<ArticleOut | null>(null);
   const [stats, setStats] = useState<ArticleAnalytics | null>(null);
-  const [title, setTitle] = useState("");
   const [activePlatform, setActivePlatform] = useState<PlatformKey>("xhs");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +124,6 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
       .then(([a, s]) => {
         if (!alive) return;
         setArticle(a);
-        setTitle(a.title);
         setStats(s);
       })
       .catch((e) => alive && setError((e as ApiError).message || "加载失败"));
@@ -133,20 +131,6 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
       alive = false;
     };
   }, [articleId]);
-
-  async function saveTitle() {
-    setBusy(true);
-    setError(null);
-    try {
-      const a = await apiPatch<ArticleOut>(`/articles/${articleId}`, { title });
-      setArticle(a);
-      setOk("标题已保存");
-    } catch (e) {
-      setError((e as ApiError).message || "保存失败");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function remove() {
     if (!window.confirm("确认删除该文章？（软删，可恢复）")) return;
@@ -192,11 +176,9 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
       <div className="flex flex-col gap-4 rounded-card border border-subtle bg-card p-5">
         <div className="flex items-center gap-3">
           {article ? <StatusPill status={article.status as never} /> : null}
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="min-w-0 flex-1 rounded-btn border border-subtle bg-raised px-3 py-2 text-[15px] font-medium text-primary focus:border-accent focus:outline-none"
-          />
+          <h2 className="min-w-0 flex-1 truncate text-[17px] font-semibold text-primary">
+            {article?.title}
+          </h2>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -215,9 +197,11 @@ export function ArticleDetailScreen({ articleId }: { articleId: string }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={saveTitle} disabled={busy}>
-            保存标题
-          </Button>
+          {article ? (
+            <Button onClick={() => router.push(`/writer?articleId=${article.article_id}`)}>
+              去编辑
+            </Button>
+          ) : null}
           {article ? (
             <PublishButton
               articleId={article.article_id}
