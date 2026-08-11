@@ -13,7 +13,7 @@ import { apiDelete, apiGet, ApiError } from "@/lib/clientApi";
 import { toImageProxyUrl } from "@/lib/media";
 import type { DataSource, Kpi, MaterialItem } from "@/lib/types";
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 48;
 
 interface MaterialOut {
   id: number;
@@ -88,6 +88,11 @@ export function AssetsScreen({
   const [ok, setOk] = useState<string | null>(null);
   const [live, setLive] = useState(materialSource === "backend");
 
+  // 分页
+  const [total, setTotal] = useState(initialMaterials.length);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   // 图片编辑器
   const [editorItem, setEditorItem] = useState<MaterialItem | null>(null);
   const [editorInfo, setEditorInfo] = useState<{ width?: number; height?: number; format?: string; sizeBytes?: number }>({});
@@ -98,23 +103,38 @@ export function AssetsScreen({
   const [impEpisode, setImpEpisode] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const loadByWork = useCallback(async (work: string | null) => {
+  const loadByWork = useCallback(async (work: string | null, offset = 0, append = false) => {
     setBusy(true);
     setError(null);
-    setKeywords([]);
-    setQuery("");
+    if (!append) { setKeywords([]); setQuery(""); }
     try {
-      const qs = new URLSearchParams({ limit: String(PAGE_SIZE), source: "library" });
+      const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset), source: "library" });
       if (work) qs.set("work", work);
       const res = await apiGet<MaterialListResponse>(`/materials?${qs.toString()}`);
-      setItems(fromList(res.items ?? []));
+      const newItems = fromList(res.items ?? []);
+      if (append) {
+        setItems((prev) => [...prev, ...newItems]);
+      } else {
+        setItems(newItems);
+      }
+      const t = res.total_indexed ?? newItems.length;
+      setTotal(t);
+      setHasMore(offset + newItems.length < t);
       setLive(true);
     } catch (e) {
       setError((e as ApiError).message || "素材读取失败");
     } finally {
       setBusy(false);
+      setLoadingMore(false);
     }
   }, []);
+
+  async function loadMore() {
+    if (loadingMore || !hasMore || busy) return;
+    setLoadingMore(true);
+    const nextOffset = items.length;
+    await loadByWork(activeWork, nextOffset, true);
+  }
 
   const search = useCallback(async (q: string) => {
     const term = q.trim();
@@ -338,8 +358,8 @@ export function AssetsScreen({
         title="素材库"
         hint={
           query
-            ? `检索「${query}」${keywords.length ? ` · 关键词 ${keywords.join(" / ")}` : ""} · ${items.length} 条`
-            : `${activeWork ?? "全部作品"} · ${items.length} 条`
+            ? `检索「${query}」${keywords.length ? ` · 关键词 ${keywords.join(" / ")}` : ""} · 显示 ${items.length}/${total} 条`
+            : `${activeWork ?? "全部作品"} · 显示 ${items.length}/${total} 条`
         }
         action={
           query || activeWork ? (
@@ -388,16 +408,27 @@ export function AssetsScreen({
             {busy ? "读取中…" : "没有匹配的素材，换个关键词或清除筛选试试"}
           </div>
         ) : (
-          <div className="flex flex-wrap gap-gap4">
-            {items.map((item) => (
-              <MaterialTile
-                key={`${item.id}-${item.stem}`}
-                item={item}
-                onClick={() => openEditor(item)}
-                onDelete={() => deleteMaterial(Number(item.id), item.stem)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="flex flex-wrap gap-gap4">
+              {items.map((item) => (
+                <MaterialTile
+                  key={`${item.id}-${item.stem}`}
+                  item={item}
+                  onClick={() => openEditor(item)}
+                  onDelete={() => deleteMaterial(Number(item.id), item.stem)}
+                />
+              ))}
+            </div>
+            {hasMore ? (
+              <div className="mt-4 flex justify-center">
+                <ButtonSecondary onClick={loadMore} disabled={loadingMore} className="px-8">
+                  {loadingMore ? "加载中…" : `加载更多（已显示 ${items.length}/${total}）`}
+                </ButtonSecondary>
+              </div>
+            ) : items.length > PAGE_SIZE ? (
+              <p className="mt-4 text-center text-xs text-tertiary">已加载全部 {total} 条素材</p>
+            ) : null}
+          </>
         )}
       </Section>
 
