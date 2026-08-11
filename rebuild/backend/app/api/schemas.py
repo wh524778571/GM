@@ -354,6 +354,10 @@ class TopicOut(BaseModel):
     # 爆款策划框架（wechat-viral-topic）产出：命中的「爆款基因」标签 + 为什么能爆
     viral_genes: list[str] = []
     viral_why: str = ""
+    # 是否已生成过文章（article_id = topic-{id}）
+    generated: bool = False
+    # 已生成文章的状态：draft / published（无文章则为空字符串）
+    article_status: str = ""
 
 
 class TopicTodayResponse(BaseModel):

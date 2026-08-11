@@ -33,6 +33,7 @@ from app.core.settings import settings
 from app.db.base import get_session, session_scope
 from app.models.article import utcnow
 from app.models.topic_recommendation import TopicRecommendation
+from app.repositories.article_repository import ArticleRepository
 from app.repositories.topic_repository import TopicRepository
 from app.services import topic_service
 from app.services.ai import AIConfigError, AIProviderError, GenerationError
@@ -61,7 +62,7 @@ def _today() -> str:
     return date_type.today().strftime("%Y-%m-%d")
 
 
-def _to_out(t: TopicRecommendation, today: str) -> TopicOut:
+def _to_out(t: TopicRecommendation, today: str, session: Session | None = None) -> TopicOut:
     import json as _json
 
     genes: list[str] = []
@@ -71,6 +72,16 @@ def _to_out(t: TopicRecommendation, today: str) -> TopicOut:
             genes = [str(g) for g in parsed if str(g).strip()]
     except Exception:
         genes = []
+
+    generated = False
+    article_status = ""
+    if session is not None:
+        arepo = ArticleRepository(session)
+        article = arepo.get_by_article_id(f"topic-{t.id}")
+        if article is not None:
+            generated = True
+            article_status = article.status or ""
+
     return TopicOut(
         id=t.id,
         date=t.date,
@@ -84,6 +95,8 @@ def _to_out(t: TopicRecommendation, today: str) -> TopicOut:
         fresh=(t.date == today),
         viral_genes=genes,
         viral_why=t.viral_why or "",
+        generated=generated,
+        article_status=article_status,
     )
 
 
@@ -95,7 +108,7 @@ def topics_today(session: Session = Depends(get_session)) -> TopicTodayResponse:
     blacklisted = repo.list_blacklisted()
     return TopicTodayResponse(
         date=today,
-        items=[_to_out(t, today) for t in items],
+        items=[_to_out(t, today, session) for t in items],
         needs_generation=len(items) == 0,
         blacklisted_count=len(blacklisted),
     )
@@ -110,7 +123,7 @@ def topics_generate(session: Session = Depends(get_session)) -> TopicGenerateRes
         raise HTTPException(503, exc.to_dict()) from exc
     return TopicGenerateResponse(
         date=result["date"],
-        items=[_to_out(t, today) for t in result["items"]],
+        items=[_to_out(t, today, session) for t in result["items"]],
         generated=result["generated"],
     )
 
@@ -125,7 +138,7 @@ def topic_import(
         obj = topic_service.import_topic(today, payload.model_dump(), session)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    return _to_out(obj, today)
+    return _to_out(obj, today, session)
 
 
 @router.post("/topics/{topic_id}/blacklist", response_model=TopicBlacklistResponse)
@@ -185,7 +198,7 @@ def topic_update(
 
     obj.updated_at = utcnow()
     session.flush()
-    return _to_out(obj, today)
+    return _to_out(obj, today, session)
 
 
 @router.delete("/topics/{topic_id}", status_code=204)

@@ -23,6 +23,10 @@ interface Topic {
   fresh: boolean;
   viral_genes: string[];
   viral_why: string;
+  /** 是否已生成过文章 */
+  generated: boolean;
+  /** 已生成文章的状态: draft/published/"" */
+  article_status: string;
 }
 
 const TOPIC_TYPES = [
@@ -440,10 +444,14 @@ export function TopicsScreen() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {topics.map((t) => (
+            {topics
+              .filter((t) => t.article_status !== "published")
+              .map((t) => (
               <div
                 key={t.id}
-                className="flex flex-col rounded-card border border-subtle bg-card p-4"
+                className={`flex flex-col rounded-card border bg-card p-4 ${
+                  t.generated ? "border-success/30 bg-success/5" : "border-subtle"
+                }`}
               >
                 <div className="flex items-start gap-2">
                   <span
@@ -453,6 +461,11 @@ export function TopicsScreen() {
                   >
                     {t.topic_type}
                   </span>
+                  {t.generated ? (
+                    <span className="shrink-0 rounded-row border border-success/30 px-2 py-0.5 text-[11px] text-success">
+                      已生成
+                    </span>
+                  ) : null}
                   <div className="ml-auto flex items-center gap-1 text-[13px]">
                     <button
                       type="button"
@@ -509,7 +522,11 @@ export function TopicsScreen() {
                 ) : null}
                 <div className="mt-3 flex gap-2">
                   <Button onClick={() => writeTopic(t)} disabled={writingId === t.id}>
-                    {writingId === t.id ? "生成中…" : "生成并编辑"}
+                    {writingId === t.id
+                      ? "生成中…"
+                      : t.generated
+                      ? "重新生成"
+                      : "生成并编辑"}
                   </Button>
                 </div>
               </div>
