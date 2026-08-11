@@ -325,6 +325,15 @@ function alignText(text: string, plan: Record<number, string>): string {
   for (let i = 1; i < markIdx.length; i++) {
     if (markIdx[i] - markIdx[i - 1] < 2) reshuffle = true;
   }
+  // 全部落在最后 30% 段落（过度集中）也重排——与后端 _need_reshuffle 对齐
+  const totalParas = paras.length;
+  if (
+    !reshuffle &&
+    markIdx.length >= 2 &&
+    markIdx[0] >= Math.max(1, Math.floor(totalParas * 0.7))
+  ) {
+    reshuffle = true;
+  }
   if (!reshuffle && !missing.length) return cleaned;
 
   // 重排：删全部标记，按段落均匀重插全部 plan（编号顺序分散）

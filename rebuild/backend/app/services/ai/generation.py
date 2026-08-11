@@ -384,6 +384,8 @@ class GenerationService:
             f"\n\n【严格要求】只输出一个 JSON 对象，core 字段是 {lo}–{hi} 字的完整母稿正文"
             "（字符串，绝不用反引号 ``` 包裹），四个平台字段留空字符串即可。"
             "core 绝不能是短句或标题。"
+            "若文中出现【配图N：...】占位符，须穿插分布在正文不同段落之间"
+            "（图与图之间至少隔 2 段），禁止集中在开头或结尾。"
         )
         raw = self._call_model(user_prompt, temperature=temperature, max_tokens=max_tokens, extra2=extra2)
         data = self._parse_json(raw)
@@ -667,8 +669,56 @@ class GenerationService:
                 enforcements.append(
                     f"{rule.name}：补回 {len(missing)} 个被改写丢掉的配图占位符"
                 )
+            # 3) 分散兜底：改写后图片仍堆一起 / 过度集中在结尾 → 按段落均匀重排。
+            #    LLM 常把配图占位符堆在末尾，这里代码兜底，确保「生成即分散」，
+            #    不依赖前端加载时机（新建草稿首次生成也可能不经过前端 alignText）。
+            reshuffled = self._redistribute(text, plan)
+            if reshuffled != text:
+                text = reshuffled
+                enforcements.append(f"{rule.name}：配图位置已打散均匀重排")
             out[key] = text
         return out, enforcements
+
+    def _need_reshuffle(self, text: str) -> bool:
+        """配图是否已堆一起 / 过度集中在结尾（需要重排）。"""
+        paras = [p for p in re.split(r"\n\n+", text.strip()) if p.strip()]
+        if len(paras) <= 3:
+            return False
+        P = len(paras)
+        idxs = [i for i, p in enumerate(paras) if self._PH_RE.search(p)]
+        if len(idxs) < 2:
+            return False
+        # 相邻两张图间隔 < 2 段 → 堆一起
+        for a, b in zip(idxs, idxs[1:]):
+            if b - a < 2:
+                return True
+        # 全部落在最后 30% 段落 → 过度集中
+        if idxs[0] >= max(1, int(P * 0.7)):
+            return True
+        return False
+
+    def _redistribute(self, text: str, plan: list[tuple[int, str, float]]) -> str:
+        """把配图占位符按段落均匀重排（保留 plan 里的编号/描述，丢弃 LLM 给的错位位置）。"""
+        if not self._need_reshuffle(text) or not plan:
+            return text
+        cleaned = self._PH_RE.sub("", text)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        paras = [p for p in re.split(r"\n\n+", cleaned) if p.strip()]
+        P = len(paras)
+        if P <= 1:
+            return (
+                cleaned
+                + "\n\n"
+                + "\n\n".join(f"【配图{n}：{d}】" for (n, d, _r) in plan)
+            )
+        inserts: list[tuple[int, str]] = []
+        for k, (n, desc, _r) in enumerate(plan):
+            idx = min(P - 1, int((k + 1) / (len(plan) + 1) * P))
+            inserts.append((idx, f"【配图{n}：{desc}】"))
+        inserts.sort(key=lambda x: x[0], reverse=True)
+        for idx, tok in inserts:
+            paras.insert(idx + 1, tok)
+        return "\n\n".join(paras)
 
     def _generate_titles(self, topic: str, article_type: str) -> tuple[dict[str, str], list[str]]:
         """为四平台各生成一条符合平台调性的标题（LLM），失败时回退确定性截断。
