@@ -30,7 +30,7 @@ function inline(text: string): string {
 const IMG_BOX =
   "my-3 group relative";
 const PH_BOX =
-  "ph-slot my-3 flex cursor-default flex-col items-center gap-1 rounded-lg border border-[#c7912b]/30 bg-[#fbbe24]/08 px-4 py-4 text-center";
+  "ph-slot my-3 flex cursor-default flex-col items-center gap-2 rounded-xl border-2 border-dashed border-[#d4a02c]/40 bg-[#f5d06b]/08 px-5 py-5 text-center";
 
 /** 已绑定素材：渲染真图，风格贴近发布弹窗（图片融入正文流，操作按钮 hover 浮现）。 */
 export function figureHtml(n: string, desc: string, stem: string): string {
@@ -54,10 +54,11 @@ export function slotHtml(n: string, desc: string): string {
   const fn = desc.trim().replace(/[\\/:*?"<>|]/g, "_") + ".jpeg";
   return (
     `<div data-ph="${n}" data-desc="${d}" contenteditable="false" class="${PH_BOX}">` +
-    `<p class="select-text text-[15px] font-bold text-[#FFB950]">📷 缺少配图${n}</p>` +
-    `<p class="select-text text-[13px] text-[#E0B84C] leading-relaxed">请从素材库选择，或放入 <code class="rounded px-1.5 py-0.5 text-xs font-bold text-[#FFB950] bg-[#FFB950]/15">配图/</code> 文件夹</p>` +
-    `<p class="select-text text-xs text-[#C89B3C]">建议文件名: <code class="rounded px-1.5 py-0.5 text-xs font-bold text-[#FFB950] bg-[#FFB950]/15">${escapeHtml(fn)}</code></p>` +
-    `<div data-act="pick" class="mt-2 inline-block cursor-pointer rounded-full border border-[#FFB950]/50 px-4 py-1 text-xs font-medium text-[#FFB950] transition hover:bg-[#FFB950]/15">📎 从素材库选图</div>` +
+    `<div class="mb-1 grid h-10 w-10 place-items-center rounded-full bg-[#f5d06b]/15 text-lg">📷</div>` +
+    `<p class="select-text text-[14px] font-semibold text-[#e2b44a]">缺少配图 ${n}</p>` +
+    `<p class="select-text text-[13px] leading-relaxed text-[#bf9b4d]">从素材库选择，或放入 <code class="rounded px-1.5 py-0.5 text-xs font-semibold text-[#d4a02c] bg-[#f5d06b]/15">配图/</code> 文件夹</p>` +
+    `<p class="select-text text-[12px] text-[#a08040]">建议文件名：<code class="rounded px-1.5 py-0.5 text-xs font-medium text-[#d4a02c] bg-[#f5d06b]/15">${escapeHtml(fn)}</code></p>` +
+    `<div data-act="pick" class="mt-1 inline-flex cursor-pointer items-center gap-1 rounded-full border border-[#d4a02c]/50 px-5 py-1.5 text-[13px] font-medium text-[#e2b44a] transition hover:border-[#e2b44a] hover:bg-[#f5d06b]/12">📎 从素材库选图</div>` +
     `</div>`
   );
 }
