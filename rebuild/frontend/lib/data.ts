@@ -172,9 +172,9 @@ export async function getDashboardKpis(): Promise<Sourced<Kpi[]>> {
   return {
     source: "backend",
     data: [
-      { label: "本周待更", value: String(draft + pending), delta: "沧元图周五专属 ×1", tone: "warning" },
-      { label: "已发布", value: String(published), delta: "后端实时", tone: "success" },
-      { label: "待发布", value: String(pending), delta: "等待人工确认", tone: "warning" },
+      { label: "本周待更", value: String(draft + pending), delta: `草稿 ${draft} · 待发布 ${pending}`, tone: "warning" },
+      { label: "已发布", value: String(published), delta: published ? "四平台已分发" : "暂无", tone: "success" },
+      { label: "待发布", value: String(pending), delta: pending ? "待人工确认后发布" : "已清空", tone: "warning" },
       {
         label: "素材库",
         value: materialTotal > 0 ? String(materialTotal) : "825",

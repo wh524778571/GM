@@ -63,9 +63,9 @@ export const SEED_ARTICLE_FILTERS = [
 
 /** 工作台 KPI */
 export const SEED_DASHBOARD_KPIS: Kpi[] = [
-  { label: "本周待更", value: "4", delta: "沧元图周五专属 ×1", tone: "warning" },
+  { label: "本周待更", value: "4", delta: "草稿 3 · 待发布 1", tone: "warning" },
   { label: "已发布", value: "2", delta: "+2 本周", tone: "success" },
-  { label: "待发布", value: "1", delta: "等待人工确认", tone: "warning" },
+  { label: "待发布", value: "1", delta: "待人工确认后发布", tone: "warning" },
   { label: "素材库", value: "825", delta: "跨 47 篇", tone: "neutral" },
 ];
 
