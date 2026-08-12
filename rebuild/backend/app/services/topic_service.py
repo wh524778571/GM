@@ -115,8 +115,13 @@ def generate_topics(today: str, session: Session, *, count: int = 5) -> dict:
     provider = build_provider(settings.ai_provider)  # 无密钥 → AIConfigError
     repo = TopicRepository(session)
 
-    recent = repo.list_recent(DEDUP_DAYS)
-    recent_keys = {_norm_key(r.title) for r in recent}
+    # 今日已有选题 → 直接返回，不重复生成（也省一次 LLM 调用）。
+    # 去重只针对「本次批次内 + 已拉黑」，不跨天拦截——
+    # 否则 12 号点「生成今日选题」会因 10/11 号已有 26 条而全部判重、不出新选题。
+    existing_today = repo.list_today(today)
+    if existing_today:
+        return {"date": today, "items": existing_today, "generated": 0}
+
     blacklisted = repo.list_blacklisted()
     blacklisted_keys = {_norm_key(b.title) for b in blacklisted}
 
@@ -147,7 +152,7 @@ def generate_topics(today: str, session: Session, *, count: int = 5) -> dict:
                 continue
             # 先按原始标题算去重键（与是否已中和无关），再对入库文本做数字中和
             key = _norm_key(clean_title)
-            if key in seen_keys or key in recent_keys or key in blacklisted_keys:
+            if key in seen_keys or key in blacklisted_keys:
                 continue
             seen_keys.add(key)
             s["title"] = _neutralize_numbers(clean_title)
