@@ -219,13 +219,17 @@ export function TopicsScreen() {
     setOk(null);
     try {
       const res = await apiPost<{ items: Topic[]; generated: number }>("/topics");
-      // 去重后可能无新选题（generated=0 且 items 为空）：保留当前列表，不盲目清空
-      if (res?.items && res.items.length > 0) {
-        setTopics(res.items);
+      const generated = res?.generated ?? 0;
+      if (generated > 0) {
+        // 有新增：直接用返回列表，并清掉黑名单筛选状态
+        if (res?.items && res.items.length > 0) setTopics(res.items);
         setBlacklisted([]);
-        setOk(`已生成 ${res.generated ?? 0} 个今日选题`);
+        setOk(`已生成 ${generated} 个今日选题`);
       } else {
-        setOk("今日选题已存在，无需重复生成");
+        // 去重窗口内已有相关选题：重新拉取列表，把近期选题展示出来，
+        // 避免「说已存在却页面空白」的错位（展示用精确日期、去重用滚动窗口）。
+        await loadToday();
+        setOk("今日选题已存在（已为你展示近期相关选题）");
       }
     } catch (e) {
       setError((e as ApiError).message || "生成失败");

@@ -37,7 +37,7 @@ from app.repositories.article_repository import ArticleRepository
 from app.repositories.topic_repository import TopicRepository
 from app.services import topic_service
 from app.services.ai import AIConfigError, AIProviderError, GenerationError
-from app.services.topic_service import _neutralize_numbers, _norm_key
+from app.services.topic_service import DEDUP_DAYS, _neutralize_numbers, _norm_key
 
 router = APIRouter(tags=["topics"])
 
@@ -104,12 +104,18 @@ def _to_out(t: TopicRecommendation, today: str, session: Session | None = None) 
 def topics_today(session: Session = Depends(get_session)) -> TopicTodayResponse:
     today = _today()
     repo = TopicRepository(session)
-    items = repo.list_today(today)
+    today_items = repo.list_today(today)
+    items = today_items
+    # 当天无选题时兜底展示近期（去重窗口内）选题，避免「今日选题」页一片空白、
+    # 却提示「已存在」的错位：展示用精确日期，去重用滚动窗口，二者语义需对齐。
+    if not items:
+        items = [t for t in repo.list_recent(DEDUP_DAYS) if not t.blacklisted]
     blacklisted = repo.list_blacklisted()
     return TopicTodayResponse(
         date=today,
         items=[_to_out(t, today, session) for t in items],
-        needs_generation=len(items) == 0,
+        # needs_generation 只认「当天是否真有新鲜选题」，不因兜底近期而误判为已生成
+        needs_generation=len(today_items) == 0,
         blacklisted_count=len(blacklisted),
     )
 
@@ -121,9 +127,15 @@ def topics_generate(session: Session = Depends(get_session)) -> TopicGenerateRes
         result = topic_service.generate_topics(today, session, count=5)
     except AIConfigError as exc:
         raise HTTPException(503, exc.to_dict()) from exc
+    items = result["items"]
+    # 去重窗口内已有相关选题、本次无新增时，返回近期选题让前端能直接展示——
+    # 否则前端拿到 items:[] 会误判为「空白」，但「已存在」的选题其实有。
+    if not items:
+        repo = TopicRepository(session)
+        items = [t for t in repo.list_recent(DEDUP_DAYS) if not t.blacklisted]
     return TopicGenerateResponse(
         date=result["date"],
-        items=[_to_out(t, today, session) for t in result["items"]],
+        items=[_to_out(t, today, session) for t in items],
         generated=result["generated"],
     )
 
