@@ -435,6 +435,7 @@ export function TopicsScreen() {
               <TopicCard
                 key={t.id}
                 id={t.id}
+                date={t.date}
                 title={t.title}
                 topic_type={t.topic_type}
                 summary={t.summary}

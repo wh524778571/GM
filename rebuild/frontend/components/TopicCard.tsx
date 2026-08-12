@@ -4,6 +4,7 @@ import { Button } from "./Button";
 
 interface TopicCardProps {
   id: number;
+  date: string;
   title: string;
   topic_type: string;
   summary: string;
@@ -16,6 +17,14 @@ interface TopicCardProps {
   onEdit: () => void;
   onDelete: () => void;
   onBlacklist: () => void;
+}
+
+/** 本地今日日期字符串（YYYY-MM-DD），与后端 date 字段同格式，用于区分「今日/近期」 */
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
 }
 
 const TYPE_COLOR: Record<string, string> = {
@@ -34,9 +43,10 @@ const GENE_COLOR: Record<string, string> = {
 const GENE_FALLBACK = "border-subtle text-secondary bg-raised";
 
 export function TopicCard({
-  title, topic_type, summary, angle, viral_genes, viral_why,
+  date, title, topic_type, summary, angle, viral_genes, viral_why,
   generated, writing, onWrite, onEdit, onDelete, onBlacklist,
 }: TopicCardProps) {
+  const isToday = date === todayStr();
   return (
     <div className={`flex flex-col rounded-card border bg-card p-4 ${
       generated ? "border-success/30 bg-success/5" : "border-subtle"
@@ -46,6 +56,13 @@ export function TopicCard({
           TYPE_COLOR[topic_type] ?? "text-secondary"
         }`}>
           {topic_type}
+        </span>
+        <span className={`shrink-0 rounded-row border px-2 py-0.5 text-[11px] ${
+          isToday
+            ? "border-success/30 text-success"
+            : "border-warning/40 text-warning"
+        }`}>
+          {isToday ? "今日" : `近期 ${date.slice(5)}`}
         </span>
         {generated ? (
           <span className="shrink-0 rounded-row border border-success/30 px-2 py-0.5 text-[11px] text-success">
